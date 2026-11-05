@@ -2,6 +2,14 @@
 
 Phone-style launcher for the LCDWiki ES3C28P (ESP32-S3, 2.8" 320x240 capacitive touch).
 
+| Home | Weather | Spotify | Book |
+| --- | --- | --- | --- |
+| ![Home](docs/home.png) | ![Weather](docs/weather.png) | ![Spotify](docs/spotify.png) | ![Library](docs/library.png) |
+| **Reader** | **Settings** | **Brightness** | **Robo** |
+| ![Reader](docs/reader.png) | ![Settings](docs/settings.png) | ![Pull-down brightness](docs/brightness.png) | ![Robo face](docs/robo.png) |
+
+Screenshots are read back from the display over USB serial (`screenshot.py` / `drive.py`), so they are the real 320x240 frames.
+
 Apps: **Robo** (animated companion face, mic-reactive), **Weather** (Open-Meteo, location from IP),
 **Spotify** (Connect remote: now playing with album art, play/pause/next/prev, volume; controls your phone), **Settings** (Wi-Fi join with password keyboard,
 brightness, °C/°F, light/dark appearance, location for weather and timezone, About).

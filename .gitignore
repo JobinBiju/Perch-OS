@@ -7,6 +7,7 @@ __pycache__/
 # Board screenshots taken while developing (drive.py / screenshot.py)
 preview-*.png
 *.png
+!docs/*.png
 
 # macOS
 .DS_Store
