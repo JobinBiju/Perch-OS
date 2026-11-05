@@ -1,0 +1,16 @@
+# PlatformIO build output and caches
+.pio/
+.vscode/
+__pycache__/
+*.pyc
+
+# Board screenshots taken while developing (drive.py / screenshot.py)
+preview-*.png
+*.png
+
+# macOS
+.DS_Store
+
+# The book embedded in the firmware (copyrighted text, not redistributed):
+# create data/book.txt locally before building, see README
+data/book.txt
