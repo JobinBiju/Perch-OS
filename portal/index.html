@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Perch Books</title>
+<style>
+  :root { --bg: #0e1016; --card: #1a1d26; --card2: #242836; --text: #eef0f6; --dim: #8b91a3; --blue: #4c8dff; --red: #ff5c5c; --green: #3ecf8e; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 22px; margin: 0 0 4px; } .sub { color: var(--dim); margin: 0 0 20px; }
+  #drop { border: 2px dashed #3a3f52; border-radius: 14px; padding: 36px 16px; text-align: center; color: var(--dim); cursor: pointer; transition: .15s; }
+  #drop.over { border-color: var(--blue); color: var(--text); background: var(--card); }
+  #drop strong { color: var(--text); } input[type=file] { display: none; }
+  .log { margin: 16px 0 0; } .job { background: var(--card); border-radius: 10px; padding: 10px 14px; margin: 8px 0; }
+  .job .name { font-weight: 600; } .job .st { color: var(--dim); font-size: 13px; }
+  .bar { height: 4px; background: var(--card2); border-radius: 2px; margin-top: 8px; overflow: hidden; } .bar i { display: block; height: 100%; width: 0; background: var(--blue); transition: width .2s; }
+  .job.err .st { color: var(--red); } .job.ok .bar i { background: var(--green); }
+  h2 { font-size: 16px; margin: 28px 0 8px; display: flex; justify-content: space-between; align-items: baseline; } h2 span { color: var(--dim); font-weight: 400; font-size: 13px; }
+  .book { display: flex; align-items: center; gap: 12px; background: var(--card); border-radius: 10px; padding: 10px 14px; margin: 6px 0; }
+  .book .t { flex: 1; min-width: 0; } .book .ti { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .book .au { color: var(--dim); font-size: 13px; }
+  .book .pct { color: var(--dim); font-size: 13px; white-space: nowrap; }
+  button { background: var(--card2); color: var(--text); border: 0; border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 13px; cursor: pointer; } button.del:hover { background: var(--red); }
+  .empty { color: var(--dim); padding: 20px 0; text-align: center; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Perch Books</h1>
+  <p class="sub">Drop EPUB files here. They are converted in your browser and stored on the board.</p>
+  <div id="drop"><strong>Drop EPUBs</strong> or tap to choose<br><small>conversion happens here, only the text is sent</small></div>
+  <input type="file" id="pick" accept=".epub,application/epub+zip" multiple>
+  <div class="log" id="log"></div>
+  <h2>Library <span id="store"></span></h2>
+  <div id="books"><div class="empty">Loading...</div></div>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="/convert.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+const fmt = b => b >= 1073741824 ? (b / 1073741824).toFixed(1) + " GB" : b >= 1048576 ? (b / 1048576).toFixed(1) + " MB" : Math.round(b / 1024) + " KB";
+async function refresh() {
+  try {
+    const r = await fetch("/api/books"); const j = await r.json();
+    $("#store").textContent = j.storage + ", " + fmt(j.free) + " free";
+    const el = $("#books"); el.innerHTML = "";
+    if (!j.books.length) el.innerHTML = '<div class="empty">No books on the board yet</div>';
+    for (const b of j.books) {
+      const d = document.createElement("div"); d.className = "book";
+      d.innerHTML = `<div class="t"><div class="ti"></div><div class="au"></div></div><div class="pct"></div>`;
+      d.querySelector(".ti").textContent = b.title; d.querySelector(".au").textContent = (b.author || (b.file ? "" : "built into the firmware")) + (b.file ? "  ·  " + fmt(b.size) : "");
+      d.querySelector(".pct").textContent = b.pct >= 0 ? b.pct + "% read" : "new";
+      if (b.file) { const x = document.createElement("button"); x.className = "del"; x.textContent = "Delete"; x.onclick = async () => { if (!confirm("Delete \"" + b.title + "\" from the board?")) return; await fetch("/api/delete?file=" + encodeURIComponent(b.file), {method: "POST"}); refresh(); }; d.appendChild(x); }
+      el.appendChild(d);
+    }
+  } catch (e) { $("#books").innerHTML = '<div class="empty">Board not reachable</div>'; }
+}
+function job(name) { const d = document.createElement("div"); d.className = "job"; d.innerHTML = `<div class="name"></div><div class="st">reading...</div><div class="bar"><i></i></div>`; d.querySelector(".name").textContent = name; $("#log").prepend(d); return d; }
+async function addFile(file) {
+  const j = job(file.name), st = j.querySelector(".st"), bar = j.querySelector(".bar i");
+  try {
+    const zip = await JSZip.loadAsync(await file.arrayBuffer());
+    st.textContent = "converting..."; bar.style.width = "30%";
+    const b = await BookConvert.convertEpub(zip);
+    if (!b.chapters.length) throw new Error("no text found in this EPUB");
+    const name = BookConvert.slug(b.title);
+    st.textContent = `${b.title} — ${b.chapters.length} chapters, ${fmt(b.text.length)}. Uploading...`; bar.style.width = "50%";
+    await new Promise((res, rej) => {   // XHR for upload progress
+      const x = new XMLHttpRequest(); x.open("POST", "/api/upload");
+      x.upload.onprogress = e => { if (e.lengthComputable) bar.style.width = 50 + 50 * e.loaded / e.total + "%"; };
+      x.onload = () => x.status === 200 ? res() : rej(new Error(x.responseText || ("upload failed (" + x.status + ")")));
+      x.onerror = () => rej(new Error("upload failed"));
+      const fd = new FormData(); fd.append("file", new Blob([b.text], {type: "text/plain"}), name); x.send(fd);
+    });
+    bar.style.width = "100%"; j.classList.add("ok"); st.textContent = `${b.title} — ${b.chapters.length} chapters, ${fmt(b.text.length)}. Saved as ${name}`;
+  } catch (e) { j.classList.add("err"); st.textContent = e.message; }
+  refresh(); setTimeout(refresh, 2500);   // the board may still be closing the upload connection
+}
+async function addFiles(files) { for (const f of files) if (/\.epub$/i.test(f.name)) await addFile(f); else job(f.name).querySelector(".st").textContent = "not an EPUB"; }
+const drop = $("#drop");
+drop.onclick = () => $("#pick").click();
+$("#pick").onchange = e => { addFiles(e.target.files); e.target.value = ""; };
+["dragenter", "dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", e => addFiles(e.dataTransfer.files));
+document.addEventListener("dragover", e => e.preventDefault()); document.addEventListener("drop", e => e.preventDefault());
+refresh();
+</script>
+</body>
+</html>
