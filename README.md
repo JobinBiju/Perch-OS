@@ -87,3 +87,7 @@ The board listens on USB serial at 115200. `python drive.py 3 'k hello' shot:out
 | `fonts/`, `fontgen.py` | font sources and the bitmap font generator |
 | `drive.py`, `screenshot.py` | serial tools |
 | `spotify_auth.py`, `book_convert.py` | one-time Spotify link, EPUB to book text |
+
+## Licence
+
+Perch is released under the [GNU GPL v3](LICENSE). The bundled fonts keep their own licences: Plus Jakarta Sans and Literata under the SIL Open Font License, Lucide under ISC (see `fonts/`).
