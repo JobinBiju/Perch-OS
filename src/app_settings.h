@@ -226,10 +226,11 @@ struct StorageScreen : Screen {
 
 // ---------- main settings list (scrollable) ----------
 struct SettingsScreen : Screen {
-  static constexpr int Y0 = CONTENT_Y, NROWS = 8;
+  static constexpr int Y0 = CONTENT_Y, NROWS = 9;
   static constexpr int SL_X = W - MARGIN - 12 - 120, SL_W = 120;   // brightness slider, 12 px from the card's right edge
   static constexpr int TG_X = W - MARGIN - 8 - 76, TG_W = 76;      // 76x24 toggle, 8 px from the card's right edge
-  enum { R_WIFI, R_LOC, R_BRIGHT, R_UNITS, R_THEME, R_FLIP, R_STORAGE, R_ABOUT };
+  enum { R_WIFI, R_LOC, R_BRIGHT, R_SLEEP, R_UNITS, R_THEME, R_FLIP, R_STORAGE, R_ABOUT };
+  static constexpr int SLEEP_STEPS[] = {0, 1, 2, 5, 10, 30};   // minutes; 0 = never
   bool dragBright = false; int scroll = 0; uint32_t last = 0;
   const char *name() override { return "Settings"; }
   void enter() override { scroll = 0; }
@@ -263,6 +264,10 @@ struct SettingsScreen : Screen {
           frame.fillSmoothRoundRect(SL_X, cy - 4, SL_W, 8, 4, C.LINE);
           int fill = (cfg.bright - BRIGHT_MIN) * SL_W / (BRIGHT_MAX - BRIGHT_MIN);
           frame.fillSmoothRoundRect(SL_X, cy - 4, fill, 8, 4, C.ORANGE); frame.fillSmoothCircle(SL_X + constrain(fill, 8, SL_W - 8), cy, 8, C.WHITE); break; }
+        case R_SLEEP:
+          tile(y, C.INDIGO); icon(gx, gy, IC_TIMER, IC14, C.WHITE);
+          text(56, cy, "Display sleep", C.TEXT, F16, textdatum_t::middle_left);
+          value(cy, cfg.sleepMin ? String(cfg.sleepMin) + " min" : "Never"); chevron(CHEV_X, cy, C.DIM); break;
         case R_UNITS:
           tile(y, C.GREEN); glyphThermo(gx, gy, C.WHITE, C.GREEN);
           text(56, cy, "Temperature", C.TEXT, F16, textdatum_t::middle_left);
@@ -299,6 +304,8 @@ struct SettingsScreen : Screen {
     switch (rowAt(x, y)) {
       case R_WIFI: pushScreen(&wifiScreen); break;
       case R_LOC: pushScreen(&locationScreen); break;
+      case R_SLEEP: { int n = sizeof SLEEP_STEPS / sizeof *SLEEP_STEPS, i = 0; while (i < n && SLEEP_STEPS[i] != cfg.sleepMin) i++;   // tap cycles the timeout
+        cfg.sleepMin = SLEEP_STEPS[(i + 1) % n]; cfgSave(); dirty = true; break; }
       case R_UNITS: cfg.fahrenheit = !cfg.fahrenheit; cfgSave(); dirty = true; break;
       case R_THEME: cfg.dark = !cfg.dark; applyTheme(cfg.dark); cfgSave(); dirty = true; break;
       case R_FLIP: cfg.flip = !cfg.flip; applyRotation(cfg.flip); cfgSave(); dirty = true; break;

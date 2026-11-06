@@ -1,6 +1,6 @@
 // Perch: a tiny phone-style launcher for the ES3C28P ESP32-S3 2.8" touch display.
 // Home (clock + app icons) -> Robo face / Weather / Spotify / Book / Settings. Swipe from the left edge to go back;
-// pull down from the status bar to adjust the brightness.
+// pull down from the status bar to adjust the brightness. Settings > Display sleep turns the backlight off after idle.
 #include <Arduino.h>
 #include "ui.h"
 #include "net.h"
@@ -83,9 +83,18 @@ void pullUpdate(int x) {
   lcd.setBrightness(cfg.bright); drawBrightCard();
 }
 
+// Display sleep: after cfg.sleepMin minutes without a touch the backlight goes off; the next touch only wakes it.
+uint32_t lastActivity = 0; bool asleep = false, wakeTouch = false;
+void displaySleep() { if (asleep) return; asleep = true; lcd.setBrightness(0); Serial.println("display: sleep"); }
+void displayWake() { lastActivity = millis(); if (!asleep) return; asleep = false; lcd.setBrightness(cfg.bright); Serial.println("display: wake"); }
+void sleepLoop() { if (cfg.sleepMin && !asleep && !touching && millis() - lastActivity > (uint32_t)cfg.sleepMin * 60000UL) displaySleep(); }
+
 void handleTouch() {
   int x, y; bool t = readTouch(x, y);
   Screen *s = current();
+  if (t && !touching && asleep) { wakeTouch = true; displayWake(); }   // a touch on a dark screen only wakes it
+  if (wakeTouch) { if (!t) wakeTouch = false; return; }
+  if (t) lastActivity = millis();
   if (pullMode) { if (t) pullSeen = millis(); else if (millis() - pullSeen < PULL_DROP_MS) return; }   // the panel loses the finger briefly near its top edge: keep the card up
   if (t && !touching) {
     touching = true; tx0 = txl = x; ty0 = tyl = y; tStart = millis(); dragging = false; edgeMode = false; pullMode = false;
@@ -134,14 +143,17 @@ void handleSerial() {
   static char line[200]; static int n = 0;
   while (Serial.available()) {
     char c = Serial.read();
-    if (n == 0 && strchr("Sb12345pWTri", c)) {
+    if (n == 0 && strchr("Sb12345pWTriz", c)) {
+      displayWake();
       if (c == 'S') screenDump();
+      else if (c == 'z') displaySleep();   // display sleep now
       else if (c == 'b') popScreen();
       else if (c >= '1' && c <= '5') { if (navDepth == 1) { if (apps[c - '1'].launch) apps[c - '1'].launch(); else pushScreen(apps[c - '1'].screen); } }
       else if (c == 'W') { wx.ok = true; wx.city = "Kalamassery"; wx.temp = 29; wx.code = 2; wx.hum = 74; wx.wind = 12; wx.nDays = 5; for (int i = 0; i < 5; i++) wx.days[i] = {i % 3 == 0 ? 61 : 2, 31.f, 24.f, (1 + i) % 7}; wx.fetchedAt = millis(); current()->dirty = true; }  // fake weather for layout tests
       else if (c == 'T') { applyTheme(!themeDark); current()->dirty = true; }   // preview the other theme (not saved)
       else if (c == 'p') { time_t t = time(nullptr); struct tm tm; localtime_r(&t, &tm); char tb[32]; strftime(tb, sizeof tb, "%Y-%m-%d %H:%M:%S", &tm);
         Serial.printf("time %s tz %ld bright %d wifi %d ssid %s wx ok %d city %s err %s home page %d storage %s ip %s gw %s mask %s bssid %s ch %d\n", tb, cfg.tzOff, cfg.bright, WiFi.status(), WiFi.SSID().c_str(), wx.ok, wx.city.c_str(), wx.err.c_str(), homeScreen.page, storageText().c_str(), WiFi.localIP().toString().c_str(), WiFi.gatewayIP().toString().c_str(), WiFi.subnetMask().toString().c_str(), WiFi.BSSIDstr().c_str(), WiFi.channel());
+        Serial.printf("sleep %d min asleep %d idle %lu s\n", cfg.sleepMin, asleep, (unsigned long)((millis() - lastActivity) / 1000));
         Serial.printf("sp linked %d busy %d pending %d want %d lastPoll %lu have %d err %s access %d wxbusy %d mutex %s\n", sp.linked, sp.busy, sp.pending, sp.wantPolling, (unsigned long)sp.lastPoll, sp.have, sp.err.c_str(), sp.access.length(), wx.busy, xSemaphoreGetMutexHolder(netMutex) ? pcTaskGetName(xSemaphoreGetMutexHolder(netMutex)) : "free"); }
       else if (c == 'i') { Serial.print("i2c:"); for (int a = 1; a < 127; a++) { Wire.beginTransmission(a); if (!Wire.endTransmission()) Serial.printf(" 0x%02x", a); } Serial.println(); }   // bus scan
       else if (c == 'r') { storageTried = 0; storageRetrySD(); Serial.printf("storage: %s\n", storageText().c_str()); }
@@ -202,7 +214,7 @@ void loop() {
   static uint32_t lastLog = 0; static int frames = 0;
   handleSerial();
   netLoop(); batLoop(); spLoop(); portalLoop();
-  handleTouch();
+  handleTouch(); sleepLoop();
   Screen *s = current();
   if (!edgeMode && !pullMode) {   // a slide or the brightness card owns the panel
     s->tick();

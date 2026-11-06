@@ -11,7 +11,7 @@ CHARS = [chr(c) for c in range(32, 127)] + list("°·‘’“”–—…")   #
 # Lucide icon glyphs (private-use codepoints from lucide-static's lucide.css), drawn like text in the firmware
 ICONS = {"wifi": 0xE1AE, "battery-charging": 0xE054, "battery-full": 0xE055, "battery-medium": 0xE057, "battery-low": 0xE056,
          "chevron-left": 0xE06E, "chevron-right": 0xE06F, "lock": 0xE10B, "map-pin": 0xE111, "sun": 0xE178, "thermometer": 0xE186,
-         "moon": 0xE11E, "rotate-cw": 0xE149, "hard-drive": 0xE0ED, "info": 0xE0F9, "check": 0xE06C}
+         "moon": 0xE11E, "rotate-cw": 0xE149, "hard-drive": 0xE0ED, "info": 0xE0F9, "check": 0xE06C, "timer": 0xE1E0}
 ICON_CHARS = [chr(c) for c in ICONS.values()]
 
 # name, file, pixel size, weight, optical size[, chars]
