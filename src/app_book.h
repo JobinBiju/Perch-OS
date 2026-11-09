@@ -281,81 +281,103 @@ bool bookDelete(const String &file) {
   return bookFS->remove(String(BOOK_DIR) + "/" + file);
 }
 
-// ---- chapters: text-size control on top, then the chapter list in one card ----
+// segmented control: a pill with three equal segments, the selected one filled blue
+void segmented(int x, int y, int w, const char *const lab[3], int on, int pressed = -1) {
+  card(x, y, w, 24, C.CARD, 12);
+  for (int i = 0; i < 3; i++) { int sx = x + i * w / 3, sw = (i + 1) * w / 3 - i * w / 3;
+    if (on == i) frame.fillSmoothRoundRect(sx, y, sw, 24, 12, C.BLUE); else if (pressed == i) frame.fillSmoothRoundRect(sx, y, sw, 24, 12, C.CARD2);
+    text(sx + sw / 2, y + 12, lab[i], on == i ? C.WHITE : C.DIM, F12M, textdatum_t::middle_center); }
+}
+int segmentAt(int x, int y, int sx, int sy, int w) { return hit(x, y, sx - 4, sy - 4, w + 8, 32) ? constrain((x - sx) * 3 / w, 0, 2) : -1; }
+static const char *const SIZE_LAB[3] = {"Small", "Medium", "Large"}, *const LINES_LAB[3] = {"Tight", "Normal", "Loose"};
+
+// ---- chapters: text-size control on top, then the chapter list in one card; long titles wrap to two lines ----
 struct ChapterScreen : Screen {
-  static constexpr int LIST_Y = 84, ROW = 30;
-  int scroll = 0, pressed = -1;
+  static constexpr int LIST_Y = 84, ROW1 = 30, ROW2 = 44, TX = MARGIN + 12, TW = W - 2 * MARGIN - 24;
+  int scroll = 0, pressed = -1, segPressed = -1; uint16_t top[Book::MAXCH + 1]; uint8_t twoLine[Book::MAXCH]; int total = 0;
   const char *name() override { return "Chapters"; }
-  int maxScroll() { return max(0, book.nch * ROW - (H - LIST_Y)); }
-  void enter() override { scroll = constrain(book.ch * ROW - 60, 0, maxScroll()); }
-  static bool heading(const char *t, int n) { bool up = false; for (int i = 0; i < n; i++) { if (t[i] >= 'a' && t[i] <= 'z') return false; if (t[i] >= 'A' && t[i] <= 'Z') up = true; } return up; }   // part headings are all caps
+  // part headings ("Part I ...", or all caps) are shown dim, in capitals, with a dot after the numeral
+  static bool heading(const char *t, int n) {
+    if (n > 5 && !strncasecmp(t, "part ", 5)) return true;
+    bool up = false; for (int i = 0; i < n; i++) { if (t[i] >= 'a' && t[i] <= 'z') return false; if (t[i] >= 'A' && t[i] <= 'Z') up = true; } return up;
+  }
+  int title(int i, char *t) {   // the row's text (part headings capitalised, "PART I \xC2\xB7 ..."); returns its length
+    int n = min(book.chTitleLen[i], 120); memcpy(t, book.chTitle[i], n); t[n] = 0;
+    if (!heading(t, n)) return n;
+    for (int k = 0; k < n; k++) if (t[k] >= 'a' && t[k] <= 'z') t[k] -= 32;
+    if (!strncmp(t, "PART ", 5)) { int sp = 5; while (sp < n && t[sp] != ' ') sp++; if (sp < n && t[sp + 1] != '\xC2') { memmove(t + sp + 3, t + sp, n - sp + 1); memcpy(t + sp, " \xC2\xB7", 3); n += 3; } }
+    return n;
+  }
+  const lgfx::IFont *rowFont(int i) { return i == book.ch || heading(book.chTitle[i], book.chTitleLen[i]) ? F12M : F12; }
+  // split a title at a space so the first line fits; the second line is cut to fit (returns the number of lines)
+  int split(int i, char *l1, char *l2) {
+    char t[128]; int n = title(i, t); frame.setFont(rowFont(i));
+    if (frame.textWidth(t) <= TW) { strcpy(l1, t); l2[0] = 0; return 1; }
+    int cut = 0; for (int k = 1; k < n; k++) if (t[k] == ' ') { char c = t[k]; t[k] = 0; bool fits = frame.textWidth(t) <= TW; t[k] = c; if (fits) cut = k; else break; }
+    if (!cut) { cut = n; while (cut > 1) { t[cut] = 0; if (frame.textWidth(t) <= TW) break; cut--; } title(i, t); }
+    memcpy(l1, t, cut); l1[cut] = 0; int s = cut; while (t[s] == ' ') s++; strcpy(l2, t + s);
+    int m = strlen(l2); while (m > 1 && frame.textWidth(l2) > TW) l2[--m] = 0;
+    return 2;
+  }
+  void enter() override {
+    total = 0; char a[128], b[128];
+    for (int i = 0; i < book.nch; i++) { top[i] = total; twoLine[i] = split(i, a, b) == 2; total += twoLine[i] ? ROW2 : ROW1; }
+    top[book.nch] = total;
+    scroll = constrain(book.ch < book.nch ? top[book.ch] - 60 : 0, 0, maxScroll());
+  }
+  int maxScroll() { return max(0, total - (H - LIST_Y)); }
   void render() override {
     frame.fillScreen(C.BG);
     frame.setClipRect(0, LIST_Y, W, H - LIST_Y);
-    card(MARGIN, LIST_Y - scroll, W - 2 * MARGIN, book.nch * ROW, C.CARD, 12);
+    card(MARGIN, LIST_Y - scroll, W - 2 * MARGIN, total, C.CARD, 12);
     for (int i = 0; i < book.nch; i++) {
-      int y = LIST_Y + i * ROW - scroll; if (y + ROW < LIST_Y || y > H) continue;
-      if (pressed == i) frame.fillRect(MARGIN + 2, y, W - 2 * MARGIN - 4, ROW, C.CARD2);
-      char t[64]; int n = min(book.chTitleLen[i], 63); memcpy(t, book.chTitle[i], n); t[n] = 0;
-      bool cur = i == book.ch, part = heading(t, n);
-      const lgfx::IFont *f = cur || part ? F12M : F12;
-      frame.setFont(f); while (n > 1 && frame.textWidth(t) > W - 2 * MARGIN - 24) t[--n] = 0;
-      if (cur) frame.fillSmoothRoundRect(MARGIN + 4, y + 8, 3, 14, 2, C.BLUE);
-      text(MARGIN + 12, y + ROW / 2, t, cur ? C.BLUE : part ? C.DIM : C.TEXT, f, textdatum_t::middle_left);
-      if (i + 1 < book.nch) frame.drawFastHLine(MARGIN + 12, y + ROW - 1, W - 2 * MARGIN - 24, C.CARD2);
+      int y = LIST_Y + top[i] - scroll, h = top[i + 1] - top[i]; if (y + h < LIST_Y || y > H) continue;
+      if (pressed == i) frame.fillRect(MARGIN + 2, y, W - 2 * MARGIN - 4, h, C.CARD2);
+      char l1[128], l2[128]; int n = split(i, l1, l2); bool cur = i == book.ch, part = heading(book.chTitle[i], book.chTitleLen[i]);
+      const lgfx::IFont *f = rowFont(i); uint16_t col = cur ? C.BLUE : part ? C.DIM : C.TEXT;
+      if (cur) frame.fillSmoothRoundRect(MARGIN + 4, y + 8, 3, h - 16, 2, C.BLUE);
+      if (n == 1) text(TX, y + h / 2, l1, col, f, textdatum_t::middle_left);
+      else { text(TX, y + 15, l1, col, f, textdatum_t::middle_left); text(TX, y + 29, l2, col, f, textdatum_t::middle_left); }
+      if (i + 1 < book.nch) frame.drawFastHLine(TX, y + h - 1, TW, C.CARD2);
     }
     frame.clearClipRect();
     frame.fillRect(0, 0, W, LIST_Y, C.BG); drawStatusBar(); drawTitle("Chapters");
-    // text size: segmented control 296x24 r12
-    const char *lab[] = {"Small", "Medium", "Large"};
-    card(MARGIN, CONTENT_Y, W - 2 * MARGIN, 24, C.CARD, 12);
-    for (int i = 0; i < 3; i++) { int x = MARGIN + 2 + i * 97; bool on = book.fontIdx == i;
-      if (on) frame.fillSmoothRoundRect(x, CONTENT_Y + 2, 98, 20, 10, C.BLUE);
-      text(x + 49, CONTENT_Y + 12, lab[i], on ? C.WHITE : C.DIM, F12M, textdatum_t::middle_center); }
+    segmented(MARGIN, CONTENT_Y, W - 2 * MARGIN, SIZE_LAB, book.fontIdx, segPressed);
   }
-  int rowAt(int x, int y) { if (y < LIST_Y) return -1; int i = (y - LIST_Y + scroll) / ROW; return i < book.nch ? i : -1; }
-  void onDown(int x, int y) override { pressed = rowAt(x, y); if (pressed >= 0) dirty = true; }
-  void onMove(int x, int y, int dx, int dy) override { pressed = -1; scroll = constrain(scroll - dy, 0, maxScroll()); dirty = true; }
-  void onUp(int x, int y) override { if (pressed >= 0) { pressed = -1; dirty = true; } }
+  int rowAt(int x, int y) { if (y < LIST_Y) return -1; int v = y - LIST_Y + scroll; for (int i = 0; i < book.nch; i++) if (v < top[i + 1]) return i; return -1; }
+  void onDown(int x, int y) override { pressed = rowAt(x, y); segPressed = segmentAt(x, y, MARGIN, CONTENT_Y, W - 2 * MARGIN); if (pressed >= 0 || segPressed >= 0) dirty = true; }
+  void onMove(int x, int y, int dx, int dy) override { pressed = -1; segPressed = -1; scroll = constrain(scroll - dy, 0, maxScroll()); dirty = true; }
+  void onUp(int x, int y) override { if (pressed >= 0 || segPressed >= 0) { pressed = -1; segPressed = -1; dirty = true; } }
   void onTap(int x, int y) override {
-    if (y >= CONTENT_Y - 4 && y < CONTENT_Y + 28 && x >= MARGIN && x < W - MARGIN) { bookSetFont((x - MARGIN) / 99); dirty = true; return; }
+    int sg = segmentAt(x, y, MARGIN, CONTENT_Y, W - 2 * MARGIN); if (sg >= 0) { bookSetFont(sg); dirty = true; return; }
     int i = rowAt(x, y); if (i >= 0) { bookOpen(i); bookSave(); popScreens(2); }
   }
 } chapterScreen;
 
-// ---- reader menu: title, progress, text size chips, chapters row, continue / home ----
+// ---- reader menu: title, author · chapter, text size and line spacing, continue / chapters ----
 struct ReaderMenuScreen : Screen {
-  static constexpr int CHIP_Y = 92, CHIP2_Y = 120, ROW_Y = 152, BTN_Y = 192, CHIP_X = 60, CHIP_W = 77, CHIP_P = 85;   // two chip rows on a 28 px pitch
-  int pressed = -1; // 0..2 text size chips, 6..8 line spacing chips, 3 chapters row, 4 continue, 5 home
+  static constexpr int SEG_X = 60, SEG_W = W - MARGIN - SEG_X, SEG1_Y = 100, SEG2_Y = 136, BTN_Y = 192, BTN1_W = 172, BTN2_X = 192, BTN2_W = 116;   // the design: 172 + 8 + 116
+  int pressed = -1; // 0..2 text size, 6..8 line spacing, 4 continue, 5 chapters
   const char *name() override { return "Reading"; }
   void render() override {
     frame.fillScreen(C.BG); drawStatusBar(); drawTitle("Reading");
     String t = book.title; frame.setFont(F16B); if (frame.textWidth(t) > W - 2 * MARGIN) { while (t.length() > 1 && frame.textWidth(t + "...") > W - 2 * MARGIN) t.remove(t.length() - 1); t += "..."; }
-    text(W / 2, 58, t.c_str(), C.TEXT, F16B, textdatum_t::middle_center);
-    textf(W / 2, 76, C.DIM, F12, textdatum_t::middle_center, "%s \xC2\xB7 %d%% read \xC2\xB7 progress is saved", book.author.c_str(), bookPercent());
-    chips(CHIP_Y, "Text", (const char *[]){"Small", "Medium", "Large"}, book.fontIdx, 0);
-    chips(CHIP2_Y, "Lines", (const char *[]){"Tight", "Normal", "Loose"}, book.lineSp, 6);
-    card(MARGIN, ROW_Y, W - 2 * MARGIN, 36, pressed == 3 ? C.CARD2 : C.CARD, 10);
-    char ct[64]; int n = min(book.chTitleLen[book.ch], 63); memcpy(ct, book.chTitle[book.ch], n); ct[n] = 0;
-    frame.setFont(F12); while (n > 1 && frame.textWidth(ct) > 170) ct[--n] = 0;
-    text(MARGIN + 12, ROW_Y + 18, "Chapters", C.TEXT, F16, textdatum_t::middle_left);
-    text(CHEV_X - 16, ROW_Y + 18, ct, C.DIM, F12, textdatum_t::middle_right); chevron(CHEV_X, ROW_Y + 18, C.DIM);
-    card(MARGIN, BTN_Y, 196, 36, pressed == 4 ? C.CARD2 : C.BLUE, 10);
-    text(MARGIN + 98, BTN_Y + 18, "Continue reading", C.WHITE, F16B, textdatum_t::middle_center);
-    card(216, BTN_Y, 92, 36, pressed == 5 ? C.CARD2 : C.CARD, 10);
-    text(262, BTN_Y + 18, "Home", C.TEXT, F16, textdatum_t::middle_center);
-  }
-  void chips(int y, const char *label, const char *const lab[3], int on, int id) {   // a label and three chips; `id` is the first chip's hit id
-    text(MARGIN, y + 12, label, C.DIM, F12M, textdatum_t::middle_left);
-    for (int i = 0; i < 3; i++) { int x = CHIP_X + i * CHIP_P;
-      card(x, y, CHIP_W + (i == 2 ? 1 : 0), 24, on == i ? C.BLUE : (pressed == id + i ? C.CARD2 : C.CARD), 12);
-      text(x + CHIP_W / 2, y + 12, lab[i], on == i ? C.WHITE : C.TEXT, F12M, textdatum_t::middle_center); }
+    text(W / 2, 61, t.c_str(), C.TEXT, F16B, textdatum_t::middle_center);
+    const char *ct; int cl; int num = bookChapterNum(book.ch, ct, cl);
+    char sub[120]; if (num) snprintf(sub, sizeof sub, "%s \xC2\xB7 Chapter %d", book.author.c_str(), num); else snprintf(sub, sizeof sub, "%s \xC2\xB7 %.*s", book.author.c_str(), min(cl, 60), ct);
+    frame.setFont(F12); int n = strlen(sub); while (n > 1 && frame.textWidth(sub) > W - 2 * MARGIN) sub[--n] = 0;
+    text(W / 2, 81, sub, C.DIM, F12, textdatum_t::middle_center);
+    text(MARGIN, SEG1_Y + 12, "Text", C.DIM, F12M, textdatum_t::middle_left); segmented(SEG_X, SEG1_Y, SEG_W, SIZE_LAB, book.fontIdx, pressed >= 0 && pressed < 3 ? pressed : -1);
+    text(MARGIN, SEG2_Y + 12, "Lines", C.DIM, F12M, textdatum_t::middle_left); segmented(SEG_X, SEG2_Y, SEG_W, LINES_LAB, book.lineSp, pressed >= 6 ? pressed - 6 : -1);
+    card(MARGIN, BTN_Y, BTN1_W, 36, pressed == 4 ? C.CARD2 : C.BLUE, 10);
+    text(MARGIN + BTN1_W / 2, BTN_Y + 18, "Continue reading", C.WHITE, F16B, textdatum_t::middle_center);
+    card(BTN2_X, BTN_Y, BTN2_W, 36, pressed == 5 ? C.CARD2 : C.CARD, 10);
+    text(BTN2_X + 12, BTN_Y + 18, "Chapters", C.TEXT, F16, textdatum_t::middle_left); chevron(BTN2_X + BTN2_W - 16, BTN_Y + 18, C.DIM);
   }
   int at(int x, int y) {
-    for (int r = 0; r < 2; r++) { int cy = r ? CHIP2_Y : CHIP_Y;
-      if (y >= cy - 2 && y < cy + 26) for (int i = 0; i < 3; i++) if (x >= CHIP_X + i * CHIP_P - 4 && x < CHIP_X + i * CHIP_P + CHIP_W + 4) return (r ? 6 : 0) + i; }
-    if (hit(x, y, MARGIN, ROW_Y, W - 2 * MARGIN, 36)) return 3;
-    if (hit(x, y, MARGIN, BTN_Y - 4, 196, 44)) return 4; if (hit(x, y, 216, BTN_Y - 4, 92, 44)) return 5; return -1;
+    int sg = segmentAt(x, y, SEG_X, SEG1_Y, SEG_W); if (sg >= 0) return sg;
+    sg = segmentAt(x, y, SEG_X, SEG2_Y, SEG_W); if (sg >= 0) return 6 + sg;
+    if (hit(x, y, MARGIN, BTN_Y - 4, BTN1_W, 44)) return 4; if (hit(x, y, BTN2_X, BTN_Y - 4, BTN2_W, 44)) return 5; return -1;
   }
   void onDown(int x, int y) override { pressed = at(x, y); if (pressed >= 0) dirty = true; }
   void onUp(int x, int y) override { if (pressed >= 0) { pressed = -1; dirty = true; } }
@@ -363,9 +385,8 @@ struct ReaderMenuScreen : Screen {
     int b = at(x, y); pressed = -1;
     if (b >= 0 && b < 3) { bookSetFont(b); dirty = true; }
     else if (b >= 6 && b < 9) { bookSetLineSp(b - 6); dirty = true; }
-    else if (b == 3) pushScreen(&chapterScreen);
     else if (b == 4) popScreen();
-    else if (b == 5) { bookSave(); popToHome(); }
+    else if (b == 5) pushScreen(&chapterScreen);
     else dirty = true;
   }
 } readerMenuScreen;
