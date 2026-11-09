@@ -395,7 +395,7 @@ struct ChapterScreen : Screen {
 
 // ---- reader menu: title, author · chapter, text size and line spacing, continue / chapters ----
 struct ReaderMenuScreen : Screen {
-  static constexpr int COV_Y = 56, HEAD_X = MARGIN + COV_W + 12, SEG_X = 60, SEG_W = W - MARGIN - SEG_X, SEG1_Y = 116, SEG2_Y = 152, BTN_Y = 200, BTN1_W = 172, BTN2_X = 192, BTN2_W = 116;   // the design: 172 + 8 + 116
+  static constexpr int COV_Y = 56, HEAD_X = MARGIN + COV_W + 12, SEG_X = 60, SEG_W = W - MARGIN - SEG_X, SEG1_Y = 120, SEG2_Y = 152, BTN_Y = 200, BTN1_W = 172, BTN2_X = 192, BTN2_W = 116;   // the design: 172 + 8 + 116
   int pressed = -1; // 0..2 text size, 6..8 line spacing, 4 continue, 5 chapters
   const char *name() override { return "Reading"; }
   void render() override {
@@ -404,11 +404,11 @@ struct ReaderMenuScreen : Screen {
     const int tw = W - MARGIN - HEAD_X;
     String l1, l2; bool two = wrap2(book.title, F16B, tw, l1, l2) == 2;   // one line: title and author centred on the cover; two: stacked from its top
     text(HEAD_X, COV_Y + (two ? 10 : 16), l1.c_str(), C.TEXT, F16B, textdatum_t::middle_left);
-    if (two) text(HEAD_X, COV_Y + 30, l2.c_str(), C.TEXT, F16B, textdatum_t::middle_left);
+    if (two) text(HEAD_X, COV_Y + 28, l2.c_str(), C.TEXT, F16B, textdatum_t::middle_left);
     const char *ct; int cl; int num = bookChapterNum(book.ch, ct, cl);
     char sub[120]; if (num) snprintf(sub, sizeof sub, "%s \xC2\xB7 Chapter %d", book.author.c_str(), num); else snprintf(sub, sizeof sub, "%s \xC2\xB7 %.*s", book.author.c_str(), min(cl, 60), ct);
     frame.setFont(F12); int n = strlen(sub); while (n > 1 && frame.textWidth(sub) > tw) sub[--n] = 0;
-    text(HEAD_X, COV_Y + (two ? 48 : 34), sub, C.DIM, F12, textdatum_t::middle_left);
+    text(HEAD_X, COV_Y + (two ? 46 : 34), sub, C.DIM, F12, textdatum_t::middle_left);
     text(MARGIN, SEG1_Y + 12, "Text", C.DIM, F12M, textdatum_t::middle_left); segmented(SEG_X, SEG1_Y, SEG_W, SIZE_LAB, book.fontIdx, pressed >= 0 && pressed < 3 ? pressed : -1);
     text(MARGIN, SEG2_Y + 12, "Lines", C.DIM, F12M, textdatum_t::middle_left); segmented(SEG_X, SEG2_Y, SEG_W, LINES_LAB, book.lineSp, pressed >= 6 ? pressed - 6 : -1);
     card(MARGIN, BTN_Y, BTN1_W, 36, pressed == 4 ? C.CARD2 : C.ACCENT, 10);
