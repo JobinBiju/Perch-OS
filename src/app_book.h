@@ -16,7 +16,7 @@ struct Book {
   static constexpr int MAXCH = 256;
   const char *chTitle[MAXCH]; int chTitleLen[MAXCH]; const char *chText[MAXCH]; const char *chEnd[MAXCH]; int nch = 0;
   // current chapter layout
-  int ch = -1, fontIdx = 1; int *pages = nullptr; int npages = 0, page = 0; uint32_t stamp = 0;   // pages: first line index of each page; stamp: open order, for the library sort
+  int ch = -1, fontIdx = 1, lineSp = 1 /* 0 tight, 1 normal, 2 loose */; int *pages = nullptr; int npages = 0, page = 0; uint32_t stamp = 0;   // pages: first line index of each page; stamp: open order, for the library sort
   // layout geometry
   int textX = MARGIN, textY = 30, textW = W - 2 * MARGIN, lineH = 22, lines = 8, lines0 = 6, headH = 0;   // lines0: first page, below the chapter heading
 } book;
@@ -159,7 +159,8 @@ int bookChapterNum(int ch, const char *&title, int &len) {
 }
 void bookLayoutGeometry() {
   frame.setFont(bookFont(book.fontIdx));
-  book.lineH = frame.fontHeight() + (book.fontIdx == 0 ? 4 : 6);
+  static const int gap[3][3] = {{1, 4, 10}, {3, 6, 12}, {3, 6, 12}};   // [text size][line spacing] px between lines
+  book.lineH = frame.fontHeight() + gap[book.fontIdx][book.lineSp];
   book.textY = 30; book.lines = (218 - book.textY) / book.lineH;
   const char *t; int l; book.headH = book.ch < 0 ? 0 : (bookChapterNum(book.ch, t, l) ? 20 : 0) + 24 + 8;   // "CHAPTER n" line, RD20 title, 8 px gap
   book.lines0 = (218 - book.textY - book.headH) / book.lineH;
@@ -193,7 +194,7 @@ void bookSave() {
   const char *ps = bookPageStart(book.page);
   prefs.putString(bookKey(book.file).c_str(), String(book.ch) + " " + String((int)(ps - book.data)) + " " + String(book.stamp) + " " +
                   String((int)(ps - book.chText[book.ch])) + " " + String((int)(book.chEnd[book.ch] - book.chText[book.ch])));
-  prefs.putString("last", book.file.length() ? book.file : "*"); prefs.putInt("font", book.fontIdx); prefs.end();
+  prefs.putString("last", book.file.length() ? book.file : "*"); prefs.putInt("font", book.fontIdx); prefs.putInt("lsp", book.lineSp); prefs.end();
 }
 void bookOpen(int ch, const char *off = nullptr) {
   book.ch = constrain(ch, 0, book.nch - 1); bookPaginate(); book.page = off ? bookPageFor(off) : 0;
@@ -219,8 +220,10 @@ bool bookLoad(const String &file) {
   bookOpen(ch, pos);
   return true;
 }
-void bookBegin() { prefs.begin("books", true); book.fontIdx = prefs.getInt("font", 1); prefs.end(); }
-void bookSetFont(int f) { const char *off = book.pages ? bookPageStart(book.page) : nullptr; book.fontIdx = constrain(f, 0, 2); bookPaginate(); book.page = off ? bookPageFor(off) : 0; bookSave(); }
+void bookBegin() { prefs.begin("books", true); book.fontIdx = prefs.getInt("font", 1); book.lineSp = constrain(prefs.getInt("lsp", 1), 0, 2); prefs.end(); }
+void bookRelayout() { const char *off = book.pages ? bookPageStart(book.page) : nullptr; bookPaginate(); book.page = off ? bookPageFor(off) : 0; bookSave(); }   // same text stays on screen
+void bookSetFont(int f) { book.fontIdx = constrain(f, 0, 2); bookRelayout(); }
+void bookSetLineSp(int l) { book.lineSp = constrain(l, 0, 2); bookRelayout(); }
 int bookPercent() { if (book.ch < 0) return 0; return (int)((bookPageStart(book.page) - book.data) * 100LL / (book.dataEnd - book.data)); }
 
 // ---- library: the embedded book plus every .txt under /books ----
@@ -322,19 +325,16 @@ struct ChapterScreen : Screen {
 
 // ---- reader menu: title, progress, text size chips, chapters row, continue / home ----
 struct ReaderMenuScreen : Screen {
-  static constexpr int CHIP_Y = 100, ROW_Y = 136, BTN_Y = 192, CHIP_X = 60, CHIP_W = 77, CHIP_P = 85;
-  int pressed = -1; // 0..2 font chips, 3 chapters row, 4 continue, 5 home
+  static constexpr int CHIP_Y = 92, CHIP2_Y = 120, ROW_Y = 152, BTN_Y = 192, CHIP_X = 60, CHIP_W = 77, CHIP_P = 85;   // two chip rows on a 28 px pitch
+  int pressed = -1; // 0..2 text size chips, 6..8 line spacing chips, 3 chapters row, 4 continue, 5 home
   const char *name() override { return "Reading"; }
   void render() override {
     frame.fillScreen(C.BG); drawStatusBar(); drawTitle("Reading");
     String t = book.title; frame.setFont(F16B); if (frame.textWidth(t) > W - 2 * MARGIN) { while (t.length() > 1 && frame.textWidth(t + "...") > W - 2 * MARGIN) t.remove(t.length() - 1); t += "..."; }
-    text(W / 2, 61, t.c_str(), C.TEXT, F16B, textdatum_t::middle_center);
-    textf(W / 2, 81, C.DIM, F12, textdatum_t::middle_center, "%s \xC2\xB7 %d%% read \xC2\xB7 progress is saved", book.author.c_str(), bookPercent());
-    const char *lab[] = {"Small", "Medium", "Large"};
-    text(MARGIN, CHIP_Y + 12, "Text", C.DIM, F12M, textdatum_t::middle_left);
-    for (int i = 0; i < 3; i++) { int x = CHIP_X + i * CHIP_P; bool on = book.fontIdx == i;
-      card(x, CHIP_Y, CHIP_W + (i == 2 ? 1 : 0), 24, on ? C.BLUE : (pressed == i ? C.CARD2 : C.CARD), 12);
-      text(x + CHIP_W / 2, CHIP_Y + 12, lab[i], on ? C.WHITE : C.TEXT, F12M, textdatum_t::middle_center); }
+    text(W / 2, 58, t.c_str(), C.TEXT, F16B, textdatum_t::middle_center);
+    textf(W / 2, 76, C.DIM, F12, textdatum_t::middle_center, "%s \xC2\xB7 %d%% read \xC2\xB7 progress is saved", book.author.c_str(), bookPercent());
+    chips(CHIP_Y, "Text", (const char *[]){"Small", "Medium", "Large"}, book.fontIdx, 0);
+    chips(CHIP2_Y, "Lines", (const char *[]){"Tight", "Normal", "Loose"}, book.lineSp, 6);
     card(MARGIN, ROW_Y, W - 2 * MARGIN, 36, pressed == 3 ? C.CARD2 : C.CARD, 10);
     char ct[64]; int n = min(book.chTitleLen[book.ch], 63); memcpy(ct, book.chTitle[book.ch], n); ct[n] = 0;
     frame.setFont(F12); while (n > 1 && frame.textWidth(ct) > 170) ct[--n] = 0;
@@ -345,8 +345,15 @@ struct ReaderMenuScreen : Screen {
     card(216, BTN_Y, 92, 36, pressed == 5 ? C.CARD2 : C.CARD, 10);
     text(262, BTN_Y + 18, "Home", C.TEXT, F16, textdatum_t::middle_center);
   }
+  void chips(int y, const char *label, const char *const lab[3], int on, int id) {   // a label and three chips; `id` is the first chip's hit id
+    text(MARGIN, y + 12, label, C.DIM, F12M, textdatum_t::middle_left);
+    for (int i = 0; i < 3; i++) { int x = CHIP_X + i * CHIP_P;
+      card(x, y, CHIP_W + (i == 2 ? 1 : 0), 24, on == i ? C.BLUE : (pressed == id + i ? C.CARD2 : C.CARD), 12);
+      text(x + CHIP_W / 2, y + 12, lab[i], on == i ? C.WHITE : C.TEXT, F12M, textdatum_t::middle_center); }
+  }
   int at(int x, int y) {
-    if (y >= CHIP_Y - 4 && y < CHIP_Y + 28) for (int i = 0; i < 3; i++) if (x >= CHIP_X + i * CHIP_P - 4 && x < CHIP_X + i * CHIP_P + CHIP_W + 4) return i;
+    for (int r = 0; r < 2; r++) { int cy = r ? CHIP2_Y : CHIP_Y;
+      if (y >= cy - 2 && y < cy + 26) for (int i = 0; i < 3; i++) if (x >= CHIP_X + i * CHIP_P - 4 && x < CHIP_X + i * CHIP_P + CHIP_W + 4) return (r ? 6 : 0) + i; }
     if (hit(x, y, MARGIN, ROW_Y, W - 2 * MARGIN, 36)) return 3;
     if (hit(x, y, MARGIN, BTN_Y - 4, 196, 44)) return 4; if (hit(x, y, 216, BTN_Y - 4, 92, 44)) return 5; return -1;
   }
@@ -355,6 +362,7 @@ struct ReaderMenuScreen : Screen {
   void onTap(int x, int y) override {
     int b = at(x, y); pressed = -1;
     if (b >= 0 && b < 3) { bookSetFont(b); dirty = true; }
+    else if (b >= 6 && b < 9) { bookSetLineSp(b - 6); dirty = true; }
     else if (b == 3) pushScreen(&chapterScreen);
     else if (b == 4) popScreen();
     else if (b == 5) { bookSave(); popToHome(); }
