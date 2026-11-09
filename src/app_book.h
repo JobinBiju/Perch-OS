@@ -52,11 +52,14 @@ void bookIndex() {
 
 // per-book progress lives in NVS namespace "books": key = hash of the file name -> "chapter offset"
 String bookKey(const String &file) { uint32_t h = 2166136261u; for (char c : file) { h ^= (uint8_t)c; h *= 16777619u; } char k[12]; snprintf(k, sizeof k, "b%08lx", (unsigned long)h); return k; }
-// progress value: "chapter offset stamp"; stamp counts book openings, so the library can sort by last read
-bool bookProgress(const String &file, int &ch, int &off, uint32_t *stamp = nullptr) {
+// progress value: "chapter offset stamp rel len". offset is absolute (the library's percent); rel/len are the offset
+// within the chapter and the chapter's length when saved, so a re-converted book (more bytes: hyphens, accents)
+// reopens at the same place by scaling rel. stamp counts book openings, so the library can sort by last read.
+bool bookProgress(const String &file, int &ch, int &off, uint32_t *stamp = nullptr, int *rel = nullptr, int *len = nullptr) {
   prefs.begin("books", true); String v = prefs.getString(bookKey(file).c_str(), ""); prefs.end(); if (!v.length()) return false;
-  ch = v.toInt(); int sp = v.indexOf(' '); off = sp > 0 ? v.substring(sp + 1).toInt() : 0;
-  int sp2 = sp > 0 ? v.indexOf(' ', sp + 1) : -1; if (stamp) *stamp = sp2 > 0 ? (uint32_t)v.substring(sp2 + 1).toInt() : 0;
+  long f[5] = {0, 0, 0, -1, 0}; int n = 0; const char *q = v.c_str();
+  while (n < 5 && *q) { char *e; f[n++] = strtol(q, &e, 10); q = e; while (*q == ' ') q++; }
+  ch = f[0]; off = f[1]; if (stamp) *stamp = f[2]; if (rel) *rel = f[3]; if (len) *len = f[4];
   return true;
 }
 uint32_t bookNextStamp() { prefs.begin("books", false); uint32_t n = prefs.getUInt("seq", 0) + 1; prefs.putUInt("seq", n); prefs.end(); return n; }
@@ -187,7 +190,9 @@ int bookPageFor(const char *off) { int i = 0; while (i + 1 < book.npages && book
 void bookSave() {
   if (book.ch < 0) return;
   prefs.begin("books", false);
-  prefs.putString(bookKey(book.file).c_str(), String(book.ch) + " " + String((int)(bookPageStart(book.page) - book.data)) + " " + String(book.stamp));
+  const char *ps = bookPageStart(book.page);
+  prefs.putString(bookKey(book.file).c_str(), String(book.ch) + " " + String((int)(ps - book.data)) + " " + String(book.stamp) + " " +
+                  String((int)(ps - book.chText[book.ch])) + " " + String((int)(book.chEnd[book.ch] - book.chText[book.ch])));
   prefs.putString("last", book.file.length() ? book.file : "*"); prefs.putInt("font", book.fontIdx); prefs.end();
 }
 void bookOpen(int ch, const char *off = nullptr) {
@@ -207,8 +212,11 @@ bool bookLoad(const String &file) {
     Serial.printf("book: loaded %s, %u bytes in %lu ms\n", file.c_str(), (unsigned)got, (unsigned long)(millis() - t0));
   }
   bookIndex(); if (!book.nch) return false;
-  int ch = 0, off = -1; bookProgress(file, ch, off, &book.stamp);
-  bookOpen(ch, off >= 0 && book.data + off < book.dataEnd ? book.data + off : nullptr);
+  int ch = 0, off = -1, rel = -1, len = 0; bookProgress(file, ch, off, &book.stamp, &rel, &len);
+  ch = constrain(ch, 0, book.nch - 1); const char *pos = nullptr;
+  if (rel >= 0 && len > 0) { int now = book.chEnd[ch] - book.chText[ch]; pos = book.chText[ch] + min((long long)now, (long long)rel * now / len); }   // chapter-relative, scaled to the current text
+  else if (off >= 0 && book.data + off < book.dataEnd) pos = book.data + off;   // older saves: absolute offset
+  bookOpen(ch, pos);
   return true;
 }
 void bookBegin() { prefs.begin("books", true); book.fontIdx = prefs.getInt("font", 1); prefs.end(); }
