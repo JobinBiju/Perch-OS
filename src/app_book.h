@@ -518,11 +518,11 @@ struct LibraryScreen : Screen {
       drawCover(MARGIN + 8, y + 4, lib[i].cover, lib[i].title, pressed == i ? C.CARD2 : C.CARD);
       bool cur = lib[i].file == book.file && book.ch >= 0;
       String l1, l2; bool two = wrap2(lib[i].title, F12M, 186, l1, l2) == 2;
-      text(62, y + (two ? 14 : 19), l1.c_str(), cur ? C.ACCENT : C.TEXT, F12M, textdatum_t::middle_left);
-      if (two) text(62, y + 28, l2.c_str(), cur ? C.ACCENT : C.TEXT, F12M, textdatum_t::middle_left);
+      text(62, y + (two ? 13 : 18), l1.c_str(), cur ? C.ACCENT : C.TEXT, F12M, textdatum_t::middle_left);
+      if (two) text(62, y + 27, l2.c_str(), cur ? C.ACCENT : C.TEXT, F12M, textdatum_t::middle_left);
       String sub = opening == i ? String("Opening...") : lib[i].author.length() ? lib[i].author : String(lib[i].file.length() ? "" : "built in");
       frame.setFont(F12); while (sub.length() > 1 && frame.textWidth(sub) > 186) sub.remove(sub.length() - 1);
-      text(62, y + (two ? 42 : 37), sub.c_str(), C.DIM, F12, textdatum_t::middle_left);
+      text(62, y + (two ? 43 : 38), sub.c_str(), C.DIM, F12, textdatum_t::middle_left);
       int rx = W - MARGIN - 12;
       textf(rx, y + 21, C.DIM, F12M, textdatum_t::middle_right, lib[i].pct >= 0 ? "%d%%" : "new", lib[i].pct);
       frame.fillSmoothRoundRect(rx - 40, y + 34, 40, 4, 2, C.LINE);
