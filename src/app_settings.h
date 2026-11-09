@@ -66,7 +66,7 @@ struct WifiScreen : Screen {
       icon(rx - 8, cy, IC_WIFI, IC16, r > -75 ? C.TEXT : C.DIM); rx -= 16 + 10;
       if (known && !cur) { text(rx, cy, "saved", C.DIM, F12, textdatum_t::middle_right); frame.setFont(F12); rx -= frame.textWidth("saved") + 10; }
       frame.setFont(F16); while (ss.length() > 1 && frame.textWidth(ss) > rx - 24) ss.remove(ss.length() - 1);
-      text(24, cy, ss.c_str(), cur ? C.BLUE : C.TEXT, F16, textdatum_t::middle_left);
+      text(24, cy, ss.c_str(), cur ? C.ACCENT : C.TEXT, F16, textdatum_t::middle_left);
     }
     frame.clearClipRect();
     if (n) { frame.fillRect(0, H - 24, W, 24, C.BG); text(W / 2, 223, "Tap a network to join \xC2\xB7 pull to rescan", C.DIM, F12, textdatum_t::middle_center); }
@@ -169,7 +169,7 @@ struct LocationScreen : Screen {
     for (int i = 0; i < NROWS; i++) {
       int y = rowY(i); if (y > H || y + ROW_H < CONTENT_Y) continue;
       card(MARGIN, y, ROW_W, ROW_H, pressed == i ? C.CARD2 : C.CARD, 10); int cy = y + ROW_H / 2;
-      bool on = i == sel; uint16_t col = on ? C.BLUE : C.TEXT;
+      bool on = i == sel; uint16_t col = on ? C.ACCENT : C.TEXT;
       if (i == 0) { text(MARGIN + 12, cy, "Automatic", col, F16, textdatum_t::middle_left); text(CHEV_X - (on ? 18 : 8), cy, "from IP address", C.DIM, F12, textdatum_t::middle_right); }
       else if (i <= NPLACES) text(MARGIN + 12, cy, PLACES[i - 1].name, col, F16, textdatum_t::middle_left);
       else {
@@ -177,7 +177,7 @@ struct LocationScreen : Screen {
         String v = on ? cfg.place : "type a name"; frame.setFont(F12); while (v.length() > 1 && frame.textWidth(v) > 150) v.remove(v.length() - 1);
         text(CHEV_X - 18, cy, v.c_str(), C.DIM, F12, textdatum_t::middle_right); chevron(CHEV_X, cy, C.DIM);
       }
-      if (on && i < NROWS - 1) icon(CHEV_X, cy, IC_CHECK, IC16, C.BLUE);
+      if (on && i < NROWS - 1) icon(CHEV_X, cy, IC_CHECK, IC16, C.ACCENT);
     }
     frame.clearClipRect();
   }
@@ -211,7 +211,7 @@ struct StorageScreen : Screen {
     frame.fillSmoothRoundRect(r - pw, y + 12, pw, 20, 10, active ? C.GREENBG : C.CARD2);
     text(r - pw / 2, y + 22, st, active ? C.GREEN : C.DIM, F12M, textdatum_t::middle_center);
     frame.fillSmoothRoundRect(x, y + 42, r - x, 6, 3, C.LINE);
-    if (present && total) frame.fillSmoothRoundRect(x, y + 42, max(8, (int)(used * (r - x) / total)), 6, 3, active ? C.BLUE : C.DIM);
+    if (present && total) frame.fillSmoothRoundRect(x, y + 42, max(8, (int)(used * (r - x) / total)), 6, 3, active ? C.ACCENT : C.DIM);
     text(x, y + 65, present ? (bytesText(used) + " used of " + bytesText(total)).c_str() : note, C.DIM, F12, textdatum_t::middle_left);
   }
   void render() override {
@@ -226,10 +226,11 @@ struct StorageScreen : Screen {
 
 // ---------- main settings list (scrollable) ----------
 struct SettingsScreen : Screen {
-  static constexpr int Y0 = CONTENT_Y, NROWS = 9;
+  static constexpr int Y0 = CONTENT_Y, NROWS = 10;
+  static constexpr int SW_X0 = W - MARGIN - 10 - 5 * 22, SW_P = 22;   // six accent swatches, 22 px apart, the last 10 px from the card edge
   static constexpr int SL_X = W - MARGIN - 12 - 120, SL_W = 120;   // brightness slider, 12 px from the card's right edge
   static constexpr int TG_X = W - MARGIN - 8 - 76, TG_W = 76;      // 76x24 toggle, 8 px from the card's right edge
-  enum { R_WIFI, R_LOC, R_BRIGHT, R_SLEEP, R_UNITS, R_THEME, R_FLIP, R_STORAGE, R_ABOUT };
+  enum { R_WIFI, R_LOC, R_BRIGHT, R_SLEEP, R_UNITS, R_THEME, R_ACCENT, R_FLIP, R_STORAGE, R_ABOUT };
   static constexpr int SLEEP_STEPS[] = {0, 1, 2, 5, 10, 30};   // minutes; 0 = never
   bool dragBright = false; int scroll = 0; uint32_t last = 0;
   const char *name() override { return "Settings"; }
@@ -238,7 +239,7 @@ struct SettingsScreen : Screen {
   void tile(int y, uint16_t col) { frame.fillSmoothRoundRect(MARGIN + 10, y + 6, 24, 24, 6, col); }   // 24 px icon tile r6; glyph centre (34, y+18)
   void toggle(int y, bool right, const char *l, const char *r) {
     frame.fillSmoothRoundRect(TG_X, y + 6, TG_W, 24, 12, C.CARD2);
-    frame.fillSmoothRoundRect(TG_X + 2 + (right ? 36 : 0), y + 8, 36, 20, 10, C.BLUE);
+    frame.fillSmoothRoundRect(TG_X + 2 + (right ? 36 : 0), y + 8, 36, 20, 10, C.ACCENT);
     text(TG_X + 20, y + 18, l, right ? C.DIM : C.WHITE, F12M, textdatum_t::middle_center);
     text(TG_X + 56, y + 18, r, right ? C.WHITE : C.DIM, F12M, textdatum_t::middle_center);
   }
@@ -276,6 +277,13 @@ struct SettingsScreen : Screen {
           tile(y, C.INDIGO); glyphMoon(gx, gy, C.WHITE, C.INDIGO);
           text(56, cy, "Appearance", C.TEXT, F16, textdatum_t::middle_left);
           toggle(y, themeDark, "Light", "Dark"); break;
+        case R_ACCENT:
+          tile(y, C.ACCENT); icon(gx, gy, IC_PALETTE, IC14, C.WHITE);
+          text(56, cy, "Accent", C.TEXT, F16, textdatum_t::middle_left);
+          for (int i = 0; i < NACCENTS; i++) { int sx = SW_X0 + i * SW_P; uint16_t col = accentColor(i);
+            if (i == cfg.accent) { frame.fillSmoothCircle(sx, cy, 10, C.TEXT); frame.fillSmoothCircle(sx, cy, 8, C.CARD); frame.fillSmoothCircle(sx, cy, 6, col); }
+            else frame.fillSmoothCircle(sx, cy, 8, col); }
+          break;
         case R_FLIP:
           tile(y, C.SKY); glyphRotate(gx, gy, C.WHITE);
           text(56, cy, "Rotation", C.TEXT, F16, textdatum_t::middle_left);
@@ -308,6 +316,7 @@ struct SettingsScreen : Screen {
         cfg.sleepMin = SLEEP_STEPS[(i + 1) % n]; cfgSave(); dirty = true; break; }
       case R_UNITS: cfg.fahrenheit = !cfg.fahrenheit; cfgSave(); dirty = true; break;
       case R_THEME: cfg.dark = !cfg.dark; applyTheme(cfg.dark); cfgSave(); dirty = true; break;
+      case R_ACCENT: if (x >= SW_X0 - 11) { cfg.accent = constrain((x - SW_X0 + 11) / SW_P, 0, NACCENTS - 1); applyAccent(cfg.accent); cfgSave(); dirty = true; } break;
       case R_FLIP: cfg.flip = !cfg.flip; applyRotation(cfg.flip); cfgSave(); dirty = true; break;
       case R_STORAGE: pushScreen(&storageScreen); break;
       case R_ABOUT: pushScreen(&aboutScreen); break;

@@ -15,11 +15,18 @@ LGFX_Sprite frame(&lcd);
 
 // ---- palette (switchable light / dark) ----
 inline uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) { return lcd.color565(r, g, b); }
-struct Palette { uint16_t BG, CARD, CARD2, LINE, TEXT, DIM, BLUE, GREEN, ORANGE, RED, YELLOW, SKY, INDIGO, WHITE, KEY, KEYDARK, GLOW, CLOUD, GREENBG; } C;
+struct Palette { uint16_t BG, CARD, CARD2, LINE, TEXT, DIM, ACCENT, BLUE, GREEN, ORANGE, RED, YELLOW, SKY, INDIGO, WHITE, KEY, KEYDARK, GLOW, CLOUD, GREENBG; } C;
 bool themeDark = true;
+// accent colour (Settings > Accent): every selected state, primary button and marker uses C.ACCENT
+struct AccentDef { const char *name; uint8_t r, g, b; };
+static const AccentDef ACCENTS[] = {{"Blue", 10, 132, 255}, {"Purple", 175, 82, 222}, {"Pink", 255, 45, 85}, {"Orange", 255, 149, 0}, {"Green", 52, 199, 89}, {"Teal", 48, 176, 199}};
+static constexpr int NACCENTS = sizeof ACCENTS / sizeof *ACCENTS;
+int accentIdx = 0;
+uint16_t accentColor(int i) { const AccentDef &a = ACCENTS[constrain(i, 0, NACCENTS - 1)]; return rgb(a.r, a.g, a.b); }
+void applyAccent(int i) { accentIdx = constrain(i, 0, NACCENTS - 1); C.ACCENT = accentColor(accentIdx); }
 void applyTheme(bool dark) {
   themeDark = dark;
-  C.BLUE = rgb(10, 132, 255); C.GREEN = rgb(52, 199, 89); C.ORANGE = rgb(255, 149, 0); C.RED = rgb(255, 69, 58);
+  C.ACCENT = accentColor(accentIdx); C.BLUE = rgb(10, 132, 255); C.GREEN = rgb(52, 199, 89); C.ORANGE = rgb(255, 149, 0); C.RED = rgb(255, 69, 58);
   C.YELLOW = rgb(255, 214, 10); C.SKY = rgb(60, 160, 240); C.INDIGO = rgb(90, 90, 200); C.WHITE = rgb(255, 255, 255);
   if (dark) {
     C.BG = rgb(10, 12, 20); C.CARD = rgb(28, 30, 40); C.CARD2 = rgb(44, 46, 58); C.LINE = rgb(60, 62, 76);
@@ -107,7 +114,7 @@ void drawStatusBar() {
 }
 
 // back chevron "<": Lucide chevron-left 20 px in a 28 px target at x 4..32 (tap zone: Screen::backHit)
-void drawBack(int cy) { icon(18, cy, IC_CHEVRON_LEFT, IC20, C.BLUE); }
+void drawBack(int cy) { icon(18, cy, IC_CHEVRON_LEFT, IC20, C.ACCENT); }
 // nav header: F16B title centred in the 28 px band under the status bar, back hint when not home
 void drawTitle(const char *t) {
   text(W / 2, NAV_Y + NAV_H / 2, t, C.TEXT, F16B, textdatum_t::middle_center);

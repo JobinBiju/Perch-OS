@@ -285,7 +285,7 @@ bool bookDelete(const String &file) {
 void segmented(int x, int y, int w, const char *const lab[3], int on, int pressed = -1) {
   card(x, y, w, 24, C.CARD, 12);
   for (int i = 0; i < 3; i++) { int sx = x + i * w / 3, sw = (i + 1) * w / 3 - i * w / 3;
-    if (on == i) frame.fillSmoothRoundRect(sx, y, sw, 24, 12, C.BLUE); else if (pressed == i) frame.fillSmoothRoundRect(sx, y, sw, 24, 12, C.CARD2);
+    if (on == i) frame.fillSmoothRoundRect(sx, y, sw, 24, 12, C.ACCENT); else if (pressed == i) frame.fillSmoothRoundRect(sx, y, sw, 24, 12, C.CARD2);
     text(sx + sw / 2, y + 12, lab[i], on == i ? C.WHITE : C.DIM, F12M, textdatum_t::middle_center); }
 }
 int segmentAt(int x, int y, int sx, int sy, int w) { return hit(x, y, sx - 4, sy - 4, w + 8, 32) ? constrain((x - sx) * 3 / w, 0, 2) : -1; }
@@ -334,8 +334,8 @@ struct ChapterScreen : Screen {
       int y = LIST_Y + top[i] - scroll, h = top[i + 1] - top[i]; if (y + h < LIST_Y || y > H) continue;
       if (pressed == i) frame.fillRect(MARGIN + 2, y, W - 2 * MARGIN - 4, h, C.CARD2);
       char l1[128], l2[128]; int n = split(i, l1, l2); bool cur = i == book.ch, part = heading(book.chTitle[i], book.chTitleLen[i]);
-      const lgfx::IFont *f = rowFont(i); uint16_t col = cur ? C.BLUE : part ? C.DIM : C.TEXT;
-      if (cur) frame.fillSmoothRoundRect(MARGIN + 4, y + 8, 3, h - 16, 2, C.BLUE);
+      const lgfx::IFont *f = rowFont(i); uint16_t col = cur ? C.ACCENT : part ? C.DIM : C.TEXT;
+      if (cur) frame.fillSmoothRoundRect(MARGIN + 4, y + 8, 3, h - 16, 2, C.ACCENT);
       if (n == 1) text(TX, y + h / 2, l1, col, f, textdatum_t::middle_left);
       else { text(TX, y + 15, l1, col, f, textdatum_t::middle_left); text(TX, y + 29, l2, col, f, textdatum_t::middle_left); }
       if (i + 1 < book.nch) frame.drawFastHLine(TX, y + h - 1, TW, C.CARD2);
@@ -369,7 +369,7 @@ struct ReaderMenuScreen : Screen {
     text(W / 2, 81, sub, C.DIM, F12, textdatum_t::middle_center);
     text(MARGIN, SEG1_Y + 12, "Text", C.DIM, F12M, textdatum_t::middle_left); segmented(SEG_X, SEG1_Y, SEG_W, SIZE_LAB, book.fontIdx, pressed >= 0 && pressed < 3 ? pressed : -1);
     text(MARGIN, SEG2_Y + 12, "Lines", C.DIM, F12M, textdatum_t::middle_left); segmented(SEG_X, SEG2_Y, SEG_W, LINES_LAB, book.lineSp, pressed >= 6 ? pressed - 6 : -1);
-    card(MARGIN, BTN_Y, BTN1_W, 36, pressed == 4 ? C.CARD2 : C.BLUE, 10);
+    card(MARGIN, BTN_Y, BTN1_W, 36, pressed == 4 ? C.CARD2 : C.ACCENT, 10);
     text(MARGIN + BTN1_W / 2, BTN_Y + 18, "Continue reading", C.WHITE, F16B, textdatum_t::middle_center);
     card(BTN2_X, BTN_Y, BTN2_W, 36, pressed == 5 ? C.CARD2 : C.CARD, 10);
     text(BTN2_X + 12, BTN_Y + 18, "Chapters", C.TEXT, F16, textdatum_t::middle_left); chevron(BTN2_X + BTN2_W - 16, BTN_Y + 18, C.DIM);
@@ -467,7 +467,7 @@ struct LibraryScreen : Screen {
     if (!nlib) {
       text(W / 2, 96, "No books yet", C.TEXT, F16B, textdatum_t::middle_center);
       text(W / 2, 120, "Drop EPUBs on the portal:", C.DIM, F12, textdatum_t::middle_center);
-      text(W / 2, 136, netConnected() ? ("http://" + WiFi.localIP().toString() + "  (perch.local)").c_str() : "connect Wi-Fi first", C.BLUE, F12, textdatum_t::middle_center);
+      text(W / 2, 136, netConnected() ? ("http://" + WiFi.localIP().toString() + "  (perch.local)").c_str() : "connect Wi-Fi first", C.ACCENT, F12, textdatum_t::middle_center);
       text(W / 2, 160, storageText().c_str(), C.DIM, F12, textdatum_t::middle_center);
     }
     frame.setClipRect(0, LIST_Y, W, H - LIST_Y - FOOT);
@@ -479,14 +479,14 @@ struct LibraryScreen : Screen {
       text(MARGIN + 24, y + 24, initials(lib[i].title).c_str(), C.WHITE, F12M, textdatum_t::middle_center);
       bool cur = lib[i].file == book.file && book.ch >= 0;
       String t = lib[i].title; frame.setFont(F12M); while (t.length() > 1 && frame.textWidth(t) > 186) t.remove(t.length() - 1);
-      text(62, y + 15, t.c_str(), cur ? C.BLUE : C.TEXT, F12M, textdatum_t::middle_left);
+      text(62, y + 15, t.c_str(), cur ? C.ACCENT : C.TEXT, F12M, textdatum_t::middle_left);
       String sub = opening == i ? String("Opening...") : lib[i].author.length() ? lib[i].author : String(lib[i].file.length() ? "" : "built in");
       frame.setFont(F12); while (sub.length() > 1 && frame.textWidth(sub) > 186) sub.remove(sub.length() - 1);
       text(62, y + 33, sub.c_str(), C.DIM, F12, textdatum_t::middle_left);
       int rx = W - MARGIN - 12;
       textf(rx, y + 17, C.DIM, F12M, textdatum_t::middle_right, lib[i].pct >= 0 ? "%d%%" : "new", lib[i].pct);
       frame.fillSmoothRoundRect(rx - 40, y + 30, 40, 4, 2, C.LINE);
-      if (lib[i].pct > 0) frame.fillSmoothRoundRect(rx - 40, y + 30, max(4, 40 * lib[i].pct / 100), 4, 2, C.BLUE);
+      if (lib[i].pct > 0) frame.fillSmoothRoundRect(rx - 40, y + 30, max(4, 40 * lib[i].pct / 100), 4, 2, C.ACCENT);
     }
     frame.clearClipRect();
     frame.fillRect(0, 0, W, LIST_Y, C.BG); drawStatusBar(); drawTitle("Library");

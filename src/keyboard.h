@@ -41,7 +41,7 @@ struct Keyboard {
         char ch = rows[r][i]; if (shift && !sym) ch = toupper(ch);
         lbl[0] = ch;
         bool pressed = (pressedRow == r && pressedCol == i);
-        drawKey(x, y, w, lbl, pressed ? C.BLUE : key, C.TEXT, true);
+        drawKey(x, y, w, lbl, pressed ? C.ACCENT : key, C.TEXT, true);
       }
       if (r == 2) { // shift and backspace on the sides
         keyRect(2, 0, n, x, w);
@@ -66,7 +66,7 @@ struct Keyboard {
     drawKey(55, y, 28, ",", key, C.TEXT, true);
     drawKey(85, y, 150, "space", key, C.TEXT);
     drawKey(237, y, 28, ".", key, C.TEXT, true);
-    frame.fillSmoothRoundRect(267, y, 42, KH, 6, C.BLUE); text(288, y + KH / 2, "Done", C.WHITE, F12M, textdatum_t::middle_center);
+    frame.fillSmoothRoundRect(267, y, 42, KH, 6, C.ACCENT); text(288, y + KH / 2, "Done", C.WHITE, F12M, textdatum_t::middle_center);
   }
   // returns true if the tap was on the keyboard
   bool tap(int x, int y) {
@@ -113,5 +113,5 @@ void drawField(int x, int y, int w, int h, const String &s, bool password, const
   if (shown.length()) { frame.setTextColor(C.TEXT); frame.drawString(shown, x + pad, y + h / 2); }
   else { frame.setTextColor(C.DIM); frame.drawString(placeholder, x + pad, y + h / 2); }
   int cx = x + pad + (shown.length() ? frame.textWidth(shown) : 0) + 2;
-  if ((millis() / 500) & 1) frame.fillRect(cx, y + 8, 2, h - 16, C.BLUE);
+  if ((millis() / 500) & 1) frame.fillRect(cx, y + 8, 2, h - 16, C.ACCENT);
 }

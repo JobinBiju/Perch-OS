@@ -195,7 +195,7 @@ void setup() {
   Serial.begin(115200);
   Serial.println("\n=== Perch ===");
   cfgLoad(); spLoad();
-  lcd.init(); applyTheme(cfg.dark); applyRotation(cfg.flip); lcd.setBrightness(cfg.bright); lcd.fillScreen(C.BG);
+  lcd.init(); applyAccent(cfg.accent); applyTheme(cfg.dark); applyRotation(cfg.flip); lcd.setBrightness(cfg.bright); lcd.fillScreen(C.BG);
   frame.setPsram(true); frame.setColorDepth(16);   // PSRAM: keeps ~150 KB of internal RAM free for TLS
   if (!frame.createSprite(W, H)) Serial.println("frame alloc FAILED");
   fontsBegin();

@@ -14,7 +14,7 @@ A small phone-style OS for the LCDWiki **ES3C28P** board: ESP32-S3, 2.8" 320x240
 - **Weather**: current conditions and a 5-day forecast from Open-Meteo, for a saved place or your IP location.
 - **Spotify**: a Spotify Connect remote. Now playing with album art, play/pause, skip and volume for whatever device is playing.
 - **Book**: a text reader with a library, chapters, three text sizes, three line spacings and saved progress. Justified text with best-fit line breaks, hyphenation, italics and bold, in Literata. Books come from the microSD card.
-- **Settings**: Wi-Fi, weather location, brightness, display sleep (backlight off after 1 to 30 idle minutes, any touch wakes it), °C/°F, light/dark theme, 180° rotation, storage and About.
+- **Settings**: Wi-Fi, weather location, brightness, display sleep (backlight off after 1 to 30 idle minutes, any touch wakes it), °C/°F, light/dark theme, accent colour (six choices, used by every button, selection and marker), 180° rotation, storage and About.
 
 Gestures: swipe in from the left edge to go back, swipe sideways on Home to page through apps, and pull down from the top edge on any screen for the brightness slider.
 
