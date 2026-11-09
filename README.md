@@ -13,7 +13,7 @@ A small phone-style OS for the LCDWiki **ES3C28P** board: ESP32-S3, 2.8" 320x240
 - **Robo**: an animated companion face that reacts to the microphone.
 - **Weather**: current conditions and a 5-day forecast from Open-Meteo, for a saved place or your IP location.
 - **Spotify**: a Spotify Connect remote. Now playing with album art, play/pause, skip and volume for whatever device is playing.
-- **Book**: a text reader with a library, chapters, three text sizes, three line spacings and saved progress. Justified text with best-fit line breaks, hyphenation, italics and bold, in Literata. Books come from the microSD card.
+- **Book**: a text reader with a library of covers, chapters, three text sizes, three line spacings and saved progress. Justified text with best-fit line breaks, hyphenation, italics and bold, in Literata. Books come from the microSD card.
 - **Settings**: Wi-Fi, weather location, brightness, display sleep (backlight off after 1 to 30 idle minutes, any touch wakes it), °C/°F, light/dark theme, accent colour (six choices, used by every button, selection and marker), 180° rotation, storage and About.
 
 Gestures: swipe in from the left edge to go back, swipe sideways on Home to page through apps, and pull down from the top edge on any screen for the brightness slider.
@@ -32,6 +32,8 @@ The firmware embeds one book from `data/book.txt`, which is not in the repo. Mak
 ```bash
 python book_convert.py "book.epub" data/book.txt
 ```
+
+The converter also writes the cover thumbnail next to it as `data/book.cov`; the embedded book has no cover on the board, so copy both files into `/books` on the card if you want one.
 
 Plug the board in over USB and flash:
 
@@ -55,7 +57,9 @@ Open **http://perch.local** on a phone or computer on the same Wi-Fi and drop EP
 
 Books live in `/books` on the microSD card (FAT32), or on a small flash partition when no card is inserted. The book format is UTF-8 text: `\x02Title\nAuthor\n`, then chapters starting with `\x01Title\n`, one paragraph per line. `\x03` toggles italic and `\x04` bold (from `<em>` and `<strong>`), and a soft hyphen (U+00AD) marks a hyphenation point. The converters insert soft hyphens for English books from the hyph-utf8 en-US patterns in `portal/hyph-en-us.txt`, which the board also serves to the portal page. The reader breaks lines by minimum raggedness over each paragraph (as CrossPoint Reader does) and justifies them.
 
-Books converted with an older version keep working; drop the EPUB on the portal again to get hyphenation and accented characters.
+Each book's cover goes along as a sidecar, `name.cov` next to `name.txt`: 4 header bytes (`PC`, width, height) and a 32x48 RGB565 thumbnail that the browser scales from the EPUB's cover image. The library and the reading menu show it; books without one get a coloured tile with the title's initials. The corners carry the key colour `0xF81F`, drawn transparent, so the tile is rounded in either theme.
+
+Books converted with an older version keep working; drop the EPUB on the portal again to get its cover, hyphenation and accented characters. Reading progress is kept.
 
 ## Fonts
 

@@ -19,9 +19,12 @@ struct Book {
   int ch = -1, fontIdx = 1, lineSp = 1 /* 0 tight, 1 normal, 2 loose */; int *pages = nullptr; int npages = 0, page = 0; uint32_t stamp = 0;   // pages: first line index of each page; stamp: open order, for the library sort
   // layout geometry
   int textX = MARGIN, textY = 30, textW = W - 2 * MARGIN, lineH = 22, lines = 8, lines0 = 6, headH = 0;   // lines0: first page, below the chapter heading
+  uint16_t *cover = nullptr;   // 32x48 thumbnail from the sidecar, in PSRAM
 } book;
 
-struct LibEntry { String file, title, author; uint32_t size; int pct; uint32_t last; };   // last: open order (0 = never opened)
+struct LibEntry { String file, title, author; uint32_t size; int pct; uint32_t last; uint16_t *cover; };   // last: open order (0 = never opened); cover: 32x48 RGB565 in PSRAM or null
+// cover sidecar next to the book ("name.cov" for "name.txt"): "PC", width, height, then RGB565 little-endian pixels, corners in COV_KEY
+static constexpr int COV_W = 32, COV_H = 48; static constexpr uint16_t COV_KEY = 0xF81F;
 static constexpr int MAXLIB = 40; LibEntry lib[MAXLIB]; int nlib = 0;
 
 // reader faces by text size (0..2) and style bits (1 italic, 2 bold)
@@ -199,10 +202,29 @@ void bookSave() {
 void bookOpen(int ch, const char *off = nullptr) {
   book.ch = constrain(ch, 0, book.nch - 1); bookPaginate(); book.page = off ? bookPageFor(off) : 0;
 }
+String coverName(const String &file) { return file.endsWith(".txt") ? file.substring(0, file.length() - 4) + ".cov" : String(); }
+uint16_t *libCoverLoad(const String &file) {
+  String cn = coverName(file); if (!bookFS || !cn.length()) return nullptr;
+  File f = bookFS->open(String(BOOK_DIR) + "/" + cn); if (!f) return nullptr;
+  uint8_t h[4]; uint16_t *px = nullptr;
+  if (f.read(h, 4) == 4 && h[0] == 'P' && h[1] == 'C' && h[2] == COV_W && h[3] == COV_H) {
+    px = (uint16_t *)ps_malloc(COV_W * COV_H * 2);
+    if (px && f.read((uint8_t *)px, COV_W * COV_H * 2) != COV_W * COV_H * 2) { free(px); px = nullptr; }
+  }
+  f.close(); return px;
+}
+// cover placeholder: initials on a colour from the title
+uint16_t coverColor(const String &t) { uint32_t h = 0; for (char c : t) h = h * 31 + (uint8_t)c; const uint16_t cols[] = {rgb(255, 150, 40), C.INDIGO, C.SKY, C.GREEN, C.RED}; return cols[h % 5]; }
+String initials(const String &t) { String r; bool start = true; for (char c : t) { if (c == ' ' || c == ':') start = true; else if (start && isalnum((uint8_t)c)) { r += (char)toupper(c); start = false; if (r.length() == 2) break; } } return r; }
+void drawCover(int x, int y, const uint16_t *cover, const String &title) {
+  if (cover) frame.pushImage(x, y, COV_W, COV_H, (const lgfx::rgb565_t *)cover, lgfx::rgb565_t(COV_KEY));   // host-order 565: a plain uint16_t* would be read byte-swapped
+  else { frame.fillSmoothRoundRect(x, y, COV_W, COV_H, 4, coverColor(title)); text(x + COV_W / 2, y + COV_H / 2, initials(title).c_str(), C.WHITE, F12M, textdatum_t::middle_center); }
+}
 // load a book (file name under /books, or "" for the embedded one) and restore its position
 bool bookLoad(const String &file) {
   if (book.buf) { free(book.buf); book.buf = nullptr; }
   book.ch = -1; book.nch = 0; book.file = file;
+  free(book.cover); book.cover = libCoverLoad(file);
   if (!file.length()) { book.data = bookStart; book.dataEnd = bookEnd; }
   else {
     if (!bookFS) return false;
@@ -256,8 +278,9 @@ void bookMoveEmbedded() {
   Serial.printf("book: embedded book moved to %s\n", path.c_str());
 }
 void libScan() {
+  for (int i = 0; i < nlib; i++) { free(lib[i].cover); lib[i].cover = nullptr; }
   nlib = 0; bookMoveEmbedded();
-  if (bookEnd > bookStart && !embMoved()) { LibEntry &e = lib[nlib++]; e.file = ""; bookHeader(bookStart, bookEnd, e.title, e.author); e.size = bookEnd - bookStart; e.pct = libPercent("", e.size, &e.last); }
+  if (bookEnd > bookStart && !embMoved()) { LibEntry &e = lib[nlib++]; e.file = ""; bookHeader(bookStart, bookEnd, e.title, e.author); e.size = bookEnd - bookStart; e.pct = libPercent("", e.size, &e.last); e.cover = nullptr; }
   if (!bookFS) return;
   File d = bookFS->open(BOOK_DIR); if (!d) return;
   for (File f = d.openNextFile(); f && nlib < MAXLIB; f = d.openNextFile()) {
@@ -265,7 +288,7 @@ void libScan() {
     if (f.isDirectory() || !n.endsWith(".txt")) { f.close(); continue; }
     char h[200]; int r = f.read((uint8_t *)h, sizeof h - 1); if (r < 0) r = 0; h[r] = 0;
     LibEntry &e = lib[nlib++]; e.file = n; bookHeader(h, h + r, e.title, e.author); if (!e.title.length()) e.title = n; e.size = f.size(); e.pct = libPercent(n, e.size, &e.last);
-    f.close();
+    f.close(); e.cover = libCoverLoad(n);
   }
   d.close();
   // most recently opened first, then unread books alphabetically
@@ -276,8 +299,9 @@ bool libHas(const String &file) { for (int i = 0; i < nlib; i++) if (lib[i].file
 String libLast() { prefs.begin("books", true); String l = prefs.getString("last", ""); prefs.end(); return l == "*" ? String("") : l; }
 bool bookDelete(const String &file) {
   if (!bookFS || !file.length()) return false;
-  if (book.file == file && book.buf) { free(book.buf); book.buf = nullptr; book.ch = -1; book.nch = 0; book.data = book.dataEnd = nullptr; }
+  if (book.file == file && book.buf) { free(book.buf); book.buf = nullptr; free(book.cover); book.cover = nullptr; book.ch = -1; book.nch = 0; book.data = book.dataEnd = nullptr; }
   prefs.begin("books", false); prefs.remove(bookKey(file).c_str()); if (prefs.getString("last", "") == file) prefs.remove("last"); prefs.end();
+  bookFS->remove(String(BOOK_DIR) + "/" + coverName(file));
   return bookFS->remove(String(BOOK_DIR) + "/" + file);
 }
 
@@ -356,17 +380,19 @@ struct ChapterScreen : Screen {
 
 // ---- reader menu: title, author · chapter, text size and line spacing, continue / chapters ----
 struct ReaderMenuScreen : Screen {
-  static constexpr int SEG_X = 60, SEG_W = W - MARGIN - SEG_X, SEG1_Y = 100, SEG2_Y = 136, BTN_Y = 192, BTN1_W = 172, BTN2_X = 192, BTN2_W = 116;   // the design: 172 + 8 + 116
+  static constexpr int COV_Y = 56, HEAD_X = MARGIN + COV_W + 12, SEG_X = 60, SEG_W = W - MARGIN - SEG_X, SEG1_Y = 112, SEG2_Y = 148, BTN_Y = 196, BTN1_W = 172, BTN2_X = 192, BTN2_W = 116;   // the design: 172 + 8 + 116
   int pressed = -1; // 0..2 text size, 6..8 line spacing, 4 continue, 5 chapters
   const char *name() override { return "Reading"; }
   void render() override {
     frame.fillScreen(C.BG); drawStatusBar(); drawTitle("Reading");
-    String t = book.title; frame.setFont(F16B); if (frame.textWidth(t) > W - 2 * MARGIN) { while (t.length() > 1 && frame.textWidth(t + "...") > W - 2 * MARGIN) t.remove(t.length() - 1); t += "..."; }
-    text(W / 2, 61, t.c_str(), C.TEXT, F16B, textdatum_t::middle_center);
+    drawCover(MARGIN, COV_Y, book.cover, book.title);
+    const int tw = W - MARGIN - HEAD_X;
+    String t = book.title; frame.setFont(F16B); if (frame.textWidth(t) > tw) { while (t.length() > 1 && frame.textWidth(t + "...") > tw) t.remove(t.length() - 1); t += "..."; }
+    text(HEAD_X, COV_Y + 16, t.c_str(), C.TEXT, F16B, textdatum_t::middle_left);
     const char *ct; int cl; int num = bookChapterNum(book.ch, ct, cl);
     char sub[120]; if (num) snprintf(sub, sizeof sub, "%s \xC2\xB7 Chapter %d", book.author.c_str(), num); else snprintf(sub, sizeof sub, "%s \xC2\xB7 %.*s", book.author.c_str(), min(cl, 60), ct);
-    frame.setFont(F12); int n = strlen(sub); while (n > 1 && frame.textWidth(sub) > W - 2 * MARGIN) sub[--n] = 0;
-    text(W / 2, 81, sub, C.DIM, F12, textdatum_t::middle_center);
+    frame.setFont(F12); int n = strlen(sub); while (n > 1 && frame.textWidth(sub) > tw) sub[--n] = 0;
+    text(HEAD_X, COV_Y + 34, sub, C.DIM, F12, textdatum_t::middle_left);
     text(MARGIN, SEG1_Y + 12, "Text", C.DIM, F12M, textdatum_t::middle_left); segmented(SEG_X, SEG1_Y, SEG_W, SIZE_LAB, book.fontIdx, pressed >= 0 && pressed < 3 ? pressed : -1);
     text(MARGIN, SEG2_Y + 12, "Lines", C.DIM, F12M, textdatum_t::middle_left); segmented(SEG_X, SEG2_Y, SEG_W, LINES_LAB, book.lineSp, pressed >= 6 ? pressed - 6 : -1);
     card(MARGIN, BTN_Y, BTN1_W, 36, pressed == 4 ? C.CARD2 : C.ACCENT, 10);
@@ -455,13 +481,11 @@ struct BookScreen : Screen {
 
 // ---- library screen: entry point of the Book app ----
 struct LibraryScreen : Screen {
-  static constexpr int LIST_Y = CONTENT_Y, ROW = 48, PITCH = 52, FOOT = 24;
+  static constexpr int LIST_Y = CONTENT_Y, ROW = 56, PITCH = 60, FOOT = 24;
   int scroll = 0, pressed = -1, opening = -1;   // opening: row whose author line reads "Opening..." while the file loads
   const char *name() override { return "Library"; }
   int maxScroll() { return max(0, nlib * PITCH - 4 - (H - LIST_Y - FOOT)); }
   void enter() override { storageRetrySD(); libScan(); scroll = constrain(scroll, 0, maxScroll()); dirty = true; }   // progress may have changed
-  static uint16_t coverColor(const String &t) { uint32_t h = 0; for (char c : t) h = h * 31 + (uint8_t)c; const uint16_t cols[] = {rgb(255, 150, 40), C.INDIGO, C.SKY, C.GREEN, C.RED}; return cols[h % 5]; }
-  static String initials(const String &t) { String r; bool start = true; for (char c : t) { if (c == ' ' || c == ':') start = true; else if (start && isalnum((uint8_t)c)) { r += (char)toupper(c); start = false; if (r.length() == 2) break; } } return r; }
   void render() override {
     frame.fillScreen(C.BG);
     if (!nlib) {
@@ -474,19 +498,18 @@ struct LibraryScreen : Screen {
     for (int i = 0; i < nlib; i++) {
       int y = LIST_Y + i * PITCH - scroll; if (y + ROW < LIST_Y || y > H - FOOT) continue;
       card(MARGIN, y, W - 2 * MARGIN, ROW, pressed == i ? C.CARD2 : C.CARD, 10);
-      // cover tile: initials on a colour from the title
-      uint16_t cc = coverColor(lib[i].title); frame.fillSmoothRoundRect(MARGIN + 8, y + 8, 32, 32, 6, cc);
-      text(MARGIN + 24, y + 24, initials(lib[i].title).c_str(), C.WHITE, F12M, textdatum_t::middle_center);
+      // cover: the sidecar thumbnail, else initials on a colour from the title
+      drawCover(MARGIN + 8, y + 4, lib[i].cover, lib[i].title);
       bool cur = lib[i].file == book.file && book.ch >= 0;
       String t = lib[i].title; frame.setFont(F12M); while (t.length() > 1 && frame.textWidth(t) > 186) t.remove(t.length() - 1);
-      text(62, y + 15, t.c_str(), cur ? C.ACCENT : C.TEXT, F12M, textdatum_t::middle_left);
+      text(62, y + 19, t.c_str(), cur ? C.ACCENT : C.TEXT, F12M, textdatum_t::middle_left);
       String sub = opening == i ? String("Opening...") : lib[i].author.length() ? lib[i].author : String(lib[i].file.length() ? "" : "built in");
       frame.setFont(F12); while (sub.length() > 1 && frame.textWidth(sub) > 186) sub.remove(sub.length() - 1);
-      text(62, y + 33, sub.c_str(), C.DIM, F12, textdatum_t::middle_left);
+      text(62, y + 37, sub.c_str(), C.DIM, F12, textdatum_t::middle_left);
       int rx = W - MARGIN - 12;
-      textf(rx, y + 17, C.DIM, F12M, textdatum_t::middle_right, lib[i].pct >= 0 ? "%d%%" : "new", lib[i].pct);
-      frame.fillSmoothRoundRect(rx - 40, y + 30, 40, 4, 2, C.LINE);
-      if (lib[i].pct > 0) frame.fillSmoothRoundRect(rx - 40, y + 30, max(4, 40 * lib[i].pct / 100), 4, 2, C.ACCENT);
+      textf(rx, y + 21, C.DIM, F12M, textdatum_t::middle_right, lib[i].pct >= 0 ? "%d%%" : "new", lib[i].pct);
+      frame.fillSmoothRoundRect(rx - 40, y + 34, 40, 4, 2, C.LINE);
+      if (lib[i].pct > 0) frame.fillSmoothRoundRect(rx - 40, y + 34, max(4, 40 * lib[i].pct / 100), 4, 2, C.ACCENT);
     }
     frame.clearClipRect();
     frame.fillRect(0, 0, W, LIST_Y, C.BG); drawStatusBar(); drawTitle("Library");

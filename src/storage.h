@@ -18,7 +18,7 @@ void storageMigrate() {
   File d = LittleFS.open(BOOK_DIR); int n = 0;
   if (d) for (File f = d.openNextFile(); f; f = d.openNextFile()) {
     String name = f.name(); int sl = name.lastIndexOf('/'); if (sl >= 0) name = name.substring(sl + 1);
-    if (f.isDirectory() || !name.endsWith(".txt")) continue;
+    if (f.isDirectory() || !(name.endsWith(".txt") || name.endsWith(".cov"))) continue;
     String dst = String(BOOK_DIR) + "/" + name; size_t len = f.size(), done = 0;
     File o = SD_MMC.open(dst + ".part", FILE_WRITE); if (!o) continue;
     static uint8_t buf[4096];

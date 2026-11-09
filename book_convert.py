@@ -104,6 +104,52 @@ with open(dst, "w", encoding="utf-8") as o:
     for t, ps in chapters:
         o.write("\x01" + t + "\n")
         for p in ps: o.write(p + "\n")
+# cover thumbnail sidecar (the board's library tile): "PC", width, height, then 32x48 RGB565 little-endian pixels,
+# corners outside a 4 px radius in the key colour 0xF81F that the board draws transparent. Same lookup as convert.js.
+def first_image(page):
+    try: x = z.read(page).decode("utf-8", "replace")
+    except KeyError: return None
+    m = re.search(r'<(?:img|image)\b[^>]*?\b(?:src|xlink:href|href)="([^"]+)"', x, re.I)
+    return posixpath.normpath(posixpath.join(posixpath.dirname(page), html.unescape(m.group(1)))) if m else None
+def cover_path():
+    IMG = re.compile(r"\.(jpe?g|png|gif|webp|bmp)$", re.I)
+    m = re.search(r'<item\b[^>]*\bproperties="[^"]*\bcover-image\b[^"]*"[^>]*\bhref="([^"]+)"', opf) or re.search(r'<item\b[^>]*\bhref="([^"]+)"[^>]*\bproperties="[^"]*\bcover-image\b', opf)
+    if m: return posixpath.normpath(posixpath.join(base, html.unescape(m.group(1))))
+    m = re.search(r'<meta\b[^>]*\bname="cover"[^>]*\bcontent="([^"]+)"', opf) or re.search(r'<meta\b[^>]*\bcontent="([^"]+)"[^>]*\bname="cover"', opf)
+    if m and m.group(1) in items:
+        p = posixpath.normpath(posixpath.join(base, html.unescape(items[m.group(1)])))
+        if IMG.search(p): return p
+        if (i := first_image(p)): return i
+    m = re.search(r'<reference\b[^>]*\btype="cover"[^>]*\bhref="([^"#]+)', opf) or re.search(r'<reference\b[^>]*\bhref="([^"#]+)[^>]*\btype="cover"', opf)
+    if m:
+        p = posixpath.normpath(posixpath.join(base, html.unescape(m.group(1))))
+        if (i := p if IMG.search(p) else first_image(p)): return i
+    return first_image(spine[0]) if spine else None
+def write_cover(path, out):
+    from PIL import Image, ImageOps
+    import io
+    W, H, R, KEY = 32, 48, 4, 0xF81F
+    im = ImageOps.fit(Image.open(io.BytesIO(z.read(path))).convert("RGB"), (W, H), Image.LANCZOS)
+    px = im.load(); data = bytearray([0x50, 0x43, W, H])
+    for y in range(H):
+        for x in range(W):
+            cx = R - 0.5 - x if x < R else x - (W - R - 0.5) if x >= W - R else 0
+            cy = R - 0.5 - y if y < R else y - (H - R - 0.5) if y >= H - R else 0
+            if cx * cx + cy * cy > R * R: v = KEY
+            else:
+                r, g, b = px[x, y]; v = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
+                if v == KEY: v = 0xF81E
+            data += bytes((v & 0xFF, v >> 8))
+    open(out, "wb").write(data)
+cov = None
+try:
+    cov = cover_path()
+    if cov and cov in z.namelist():
+        write_cover(cov, re.sub(r"\.txt$", "", dst) + ".cov")
+    else: cov = None
+except Exception as e:
+    print(f"cover skipped: {e}"); cov = None
+
 size = sum(len(p) + 1 for _, ps in chapters for p in ps)
-print(f"{title} by {author}: {len(chapters)} chapters, {size} bytes -> {dst}")
+print(f"{title} by {author}: {len(chapters)} chapters, {size} bytes -> {dst}" + (f", cover -> {re.sub(r'.txt$', '', dst)}.cov" if cov else ", no cover"))
 for t, ps in chapters: print(f"  {t[:50]:50s} {sum(len(p) for p in ps):>7d}")

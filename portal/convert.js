@@ -1,5 +1,6 @@
 // EPUB -> Perch book text, a port of book_convert.py. Runs in the browser (portal) or in node (tests).
-// convertEpub(zip) -> {title, author, text, chapters:[{title, bytes}]}; `zip` is a loaded JSZip.
+// convertEpub(zip) -> {title, author, text, chapters:[{title, bytes}], cover}; `zip` is a loaded JSZip and `cover` the zip path
+// of the cover image, if any. coverBytes(zip, path) renders it as the 32x48 RGB565 sidecar the board's library shows (browser only).
 // Text format: "\x02Title\nAuthor\n", chapters start with "\x01Title\n", one paragraph per line; \x03 toggles italic,
 // \x04 toggles bold; U+00AD marks a hyphenation point.
 // Call setHyphenationPatterns(text of hyph-en-us.txt) first to get soft hyphens in English books.
@@ -86,6 +87,49 @@
   function join(base, rel) { return normpath(base ? base + "/" + rel : rel); }
   async function text(zip, path) { const f = zip.file(path); return f ? f.async("string") : null; }
 
+  // The cover image: EPUB 3 `properties="cover-image"`, else the EPUB 2 `<meta name="cover">` item (an image, or an XHTML
+  // page wrapping one), else the guide's cover page, else the first image of the first spine document.
+  const IMG = /\.(jpe?g|png|gif|webp|bmp)$/i;
+  async function firstImage(zip, page) {
+    const x = await text(zip, page); if (!x) return null;
+    const m = /<(?:img|image)\b[^>]*?\b(?:src|xlink:href|href)="([^"]+)"/i.exec(x); return m ? join(dirname(page), unescape(m[1])) : null;
+  }
+  async function coverPath(zip, opf, base, items, spine) {
+    let m = /<item\b[^>]*\bproperties="[^"]*\bcover-image\b[^"]*"[^>]*\bhref="([^"]+)"/.exec(opf) || /<item\b[^>]*\bhref="([^"]+)"[^>]*\bproperties="[^"]*\bcover-image\b/.exec(opf);
+    if (m) return join(base, unescape(m[1]));
+    m = /<meta\b[^>]*\bname="cover"[^>]*\bcontent="([^"]+)"/.exec(opf) || /<meta\b[^>]*\bcontent="([^"]+)"[^>]*\bname="cover"/.exec(opf);
+    if (m && items[m[1]]) { const p = join(base, unescape(items[m[1]])); if (IMG.test(p)) return p; const i = await firstImage(zip, p); if (i) return i; }
+    m = /<reference\b[^>]*\btype="cover"[^>]*\bhref="([^"#]+)/.exec(opf) || /<reference\b[^>]*\bhref="([^"#]+)[^>]*\btype="cover"/.exec(opf);
+    if (m) { const p = join(base, unescape(m[1])); const i = IMG.test(p) ? p : await firstImage(zip, p); if (i) return i; }
+    return spine.length ? firstImage(zip, spine[0]) : null;
+  }
+  // Sidecar format: "PC", width, height (one byte each), then width*height RGB565 little-endian pixels. The corners outside a
+  // 4 px radius are the key colour 0xF81F, which the board pushes as transparent so the tile is rounded in either theme.
+  const COV_W = 32, COV_H = 48, COV_R = 4, COV_KEY = 0xF81F;
+  async function coverBytes(zip, path) {
+    const f = zip.file(path); if (!f) return null;
+    let img = await createImageBitmap(new Blob([await f.async("arraybuffer")]));
+    const sc = Math.max(COV_W / img.width, COV_H / img.height);   // cover fit: scale so both sides are filled, crop the overflow
+    let sw = img.width * sc, sh = img.height * sc;
+    while (img.width > 2 * sw) {   // halve in steps: a single drawImage from a 1600 px scan to 32 px aliases badly
+      const c = document.createElement("canvas"); c.width = Math.ceil(img.width / 2); c.height = Math.ceil(img.height / 2);
+      const g = c.getContext("2d"); g.imageSmoothingQuality = "high"; g.drawImage(img, 0, 0, c.width, c.height); img = c;
+    }
+    const c = document.createElement("canvas"); c.width = COV_W; c.height = COV_H;
+    const g = c.getContext("2d"); g.imageSmoothingQuality = "high";
+    g.drawImage(img, (COV_W - sw) / 2, (COV_H - sh) / 2, sw, sh);
+    const d = g.getImageData(0, 0, COV_W, COV_H).data, out = new Uint8Array(4 + COV_W * COV_H * 2);
+    out[0] = 0x50; out[1] = 0x43; out[2] = COV_W; out[3] = COV_H;
+    for (let y = 0, i = 4; y < COV_H; y++) for (let x = 0; x < COV_W; x++, i += 2) {
+      const cx = x < COV_R ? COV_R - 0.5 - x : x >= COV_W - COV_R ? x - (COV_W - COV_R - 0.5) : 0, cy = y < COV_R ? COV_R - 0.5 - y : y >= COV_H - COV_R ? y - (COV_H - COV_R - 0.5) : 0;
+      let v;
+      if (cx * cx + cy * cy > COV_R * COV_R) v = COV_KEY;
+      else { const p = (y * COV_W + x) * 4; v = ((d[p] & 0xF8) << 8) | ((d[p + 1] & 0xFC) << 3) | (d[p + 2] >> 3); if (v === COV_KEY) v = 0xF81E; }
+      out[i] = v & 0xFF; out[i + 1] = v >> 8;
+    }
+    return out;
+  }
+
   async function convertEpub(zip) {
     const names = Object.keys(zip.files);
     const container = await text(zip, "META-INF/container.xml"); if (!container) throw new Error("not an EPUB (no container.xml)");
@@ -99,6 +143,7 @@
     for (const m of opf.matchAll(/<item\b[^>]*?\bid="([^"]+)"[^>]*?\bhref="([^"]+)"/g)) items[m[1]] = m[2];
     for (const m of opf.matchAll(/<item\b[^>]*?\bhref="([^"]+)"[^>]*?\bid="([^"]+)"/g)) items[m[2]] = m[1];
     const spine = []; for (const m of opf.matchAll(/<itemref\b[^>]*\bidref="([^"]+)"/g)) if (items[m[1]]) spine.push(join(base, items[m[1]]));
+    let cover = null; try { cover = await coverPath(zip, opf, base, items, spine); if (cover && !zip.file(cover)) cover = null; } catch (e) { cover = null; }
     // chapter titles: NCX (EPUB 2), else the nav document (EPUB 3)
     const toc = {};
     const ncx = names.find(n => n.endsWith(".ncx"));
@@ -125,9 +170,9 @@
     const kept = chapters.filter(c => c[1].length);
     let out = "\x02" + clean(title) + "\n" + clean(author) + "\n";
     for (const [t, ps] of kept) { out += "\x01" + t + "\n"; for (const p of ps) out += p + "\n"; }
-    return {title: clean(title), author: clean(author), text: out, chapters: kept.map(c => ({title: c[0], bytes: c[1].reduce((a, p) => a + p.length, 0)}))};
+    return {title: clean(title), author: clean(author), text: out, chapters: kept.map(c => ({title: c[0], bytes: c[1].reduce((a, p) => a + p.length, 0)})), cover};
   }
   function slug(title) { const s = ascii(title).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40); return (s || "book") + ".txt"; }
-  const api = {convertEpub, slug, ascii, clean, title: s => clean(s).replace(/[\x03\x04]/g, ""), paragraphs, setHyphenationPatterns, hyphenate};
+  const api = {convertEpub, coverBytes, slug, ascii, clean, title: s => clean(s).replace(/[\x03\x04]/g, ""), paragraphs, setHyphenationPatterns, hyphenate};
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.BookConvert = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);

@@ -21,6 +21,7 @@
   .book { display: flex; align-items: center; gap: 12px; background: var(--card); border-radius: 10px; padding: 10px 14px; margin: 6px 0; }
   .book .t { flex: 1; min-width: 0; } .book .ti { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .book .au { color: var(--dim); font-size: 13px; }
   .book .pct { color: var(--dim); font-size: 13px; white-space: nowrap; }
+  .book .cv { width: 32px; height: 48px; border-radius: 4px; background: var(--card2); flex: none; image-rendering: auto; }
   button { background: var(--card2); color: var(--text); border: 0; border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 13px; cursor: pointer; } button.del:hover { background: var(--red); }
   .empty { color: var(--dim); padding: 20px 0; text-align: center; }
 </style>
@@ -48,13 +49,27 @@ async function refresh() {
     if (!j.books.length) el.innerHTML = '<div class="empty">No books on the board yet</div>';
     for (const b of j.books) {
       const d = document.createElement("div"); d.className = "book";
-      d.innerHTML = `<div class="t"><div class="ti"></div><div class="au"></div></div><div class="pct"></div>`;
+      d.innerHTML = `<canvas class="cv" width="32" height="48"></canvas><div class="t"><div class="ti"></div><div class="au"></div></div><div class="pct"></div>`;
+      if (b.cover) drawCover(d.querySelector(".cv"), b.file);
       d.querySelector(".ti").textContent = b.title; d.querySelector(".au").textContent = (b.author || (b.file ? "" : "built into the firmware")) + (b.file ? "  ·  " + fmt(b.size) : "");
       d.querySelector(".pct").textContent = b.pct >= 0 ? b.pct + "% read" : "new";
       if (b.file) { const x = document.createElement("button"); x.className = "del"; x.textContent = "Delete"; x.onclick = async () => { if (!confirm("Delete \"" + b.title + "\" from the board?")) return; await fetch("/api/delete?file=" + encodeURIComponent(b.file), {method: "POST"}); refresh(); }; d.appendChild(x); }
       el.appendChild(d);
     }
   } catch (e) { $("#books").innerHTML = '<div class="empty">Board not reachable</div>'; }
+}
+// the board's 32x48 RGB565 sidecar, drawn with its key colour transparent
+async function drawCover(cv, file) {
+  try {
+    const v = new DataView(await (await fetch("/api/cover?file=" + encodeURIComponent(file))).arrayBuffer());
+    if (v.getUint8(0) !== 0x50 || v.getUint8(1) !== 0x43) return;
+    const w = v.getUint8(2), h = v.getUint8(3), g = cv.getContext("2d"), im = g.createImageData(w, h), d = im.data;
+    for (let i = 0, o = 4; i < w * h; i++, o += 2) {
+      const p = v.getUint16(o, true); if (p === 0xF81F) continue;
+      d[i * 4] = (p >> 8) & 0xF8; d[i * 4 + 1] = (p >> 3) & 0xFC; d[i * 4 + 2] = (p << 3) & 0xF8; d[i * 4 + 3] = 255;
+    }
+    g.putImageData(im, 0, 0); cv.style.background = "none";
+  } catch (e) {}
 }
 function job(name) { const d = document.createElement("div"); d.className = "job"; d.innerHTML = `<div class="name"></div><div class="st">reading...</div><div class="bar"><i></i></div>`; d.querySelector(".name").textContent = name; $("#log").prepend(d); return d; }
 let hyphReady = false;
@@ -75,6 +90,12 @@ async function addFile(file) {
       x.onerror = () => rej(new Error("upload failed"));
       const fd = new FormData(); fd.append("file", new Blob([b.text], {type: "text/plain"}), name); x.send(fd);
     });
+    if (b.cover) {   // cover thumbnail as a sidecar; a book without one just keeps its initials tile
+      try {
+        st.textContent = "cover..."; const cov = await BookConvert.coverBytes(zip, b.cover);
+        if (cov) { const fd = new FormData(); fd.append("file", new Blob([cov]), name.replace(/\.txt$/, ".cov")); await fetch("/api/upload", {method: "POST", body: fd}); }
+      } catch (e) { console.warn("cover skipped:", e); }
+    }
     bar.style.width = "100%"; j.classList.add("ok"); st.textContent = `${b.title} — ${b.chapters.length} chapters, ${fmt(b.text.length)}. Saved as ${name}`;
   } catch (e) { j.classList.add("err"); st.textContent = e.message; }
   refresh(); setTimeout(refresh, 2500);   // the board may still be closing the upload connection

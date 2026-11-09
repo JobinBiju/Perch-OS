@@ -19,8 +19,8 @@ bool portalUp = false, mdnsUp = false;
 File upFile; String upName; size_t upBytes = 0; bool upOk = false;
 
 static String jsonStr(const String &s) { String o = "\""; for (char c : s) { if (c == '"' || c == '\\') { o += '\\'; o += c; } else if ((uint8_t)c < 32) o += ' '; else o += c; } return o + "\""; }
-static bool safeName(const String &n) {   // slug.txt only: no paths, no odd characters
-  if (!n.endsWith(".txt") || n.length() < 5 || n.length() > 48) return false;
+static bool safeName(const String &n) {   // slug.txt or slug.cov only: no paths, no odd characters
+  if (!(n.endsWith(".txt") || n.endsWith(".cov")) || n.length() < 5 || n.length() > 48) return false;
   for (char c : n) if (!(isalnum((uint8_t)c) || c == '-' || c == '_' || c == '.')) return false;
   return n.indexOf("..") < 0;
 }
@@ -30,7 +30,7 @@ void portalBooks() {
   String j = "{\"storage\":" + jsonStr(storageName()) + ",\"free\":" + String((double)(storageTotal() - storageUsed()), 0) + ",\"books\":[";
   for (int i = 0; i < nlib; i++) {
     if (i) j += ",";
-    j += "{\"file\":" + jsonStr(lib[i].file) + ",\"title\":" + jsonStr(lib[i].title) + ",\"author\":" + jsonStr(lib[i].author) + ",\"size\":" + String(lib[i].size) + ",\"pct\":" + String(lib[i].pct) + "}";
+    j += "{\"file\":" + jsonStr(lib[i].file) + ",\"title\":" + jsonStr(lib[i].title) + ",\"author\":" + jsonStr(lib[i].author) + ",\"size\":" + String(lib[i].size) + ",\"pct\":" + String(lib[i].pct) + ",\"cover\":" + (lib[i].cover ? "true" : "false") + "}";
   }
   portal.send(200, "application/json", j + "]}");
 }
@@ -62,6 +62,11 @@ void portalBegin() {
   portal.on("/hyph-en-us.txt", HTTP_GET, []() { portal.send_P(200, "text/plain", portalHyph, portalHyphEnd - portalHyph - 1); });   // hyphenation patterns for the converter
   portal.on("/api/books", HTTP_GET, portalBooks);
   portal.on("/api/upload", HTTP_POST, []() { if (upOk) portal.send(200, "text/plain", "ok"); else portal.send(bookFS ? 400 : 507, "text/plain", bookFS ? "upload failed: bad name or storage full" : "no storage on the board"); }, portalUpload);
+  portal.on("/api/cover", HTTP_GET, []() {   // the book's thumbnail sidecar, for the portal's list
+    String f = portal.arg("file"); File c;
+    if (!safeName(f) || !bookFS || !(c = bookFS->open(String(BOOK_DIR) + "/" + coverName(f)))) { portal.send(404, "text/plain", "no cover"); return; }
+    portal.streamFile(c, "application/octet-stream"); c.close();
+  });
   portal.on("/api/delete", HTTP_POST, []() {
     String f = portal.arg("file");
     if (!safeName(f) || !bookDelete(f)) { portal.send(400, "text/plain", "not deleted"); return; }
