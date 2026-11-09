@@ -229,7 +229,7 @@ struct SettingsScreen : Screen {
   static constexpr int Y0 = CONTENT_Y, NROWS = 10;
   static constexpr int SW_X0 = W - MARGIN - 10 - 5 * 22, SW_P = 22;   // six accent swatches, 22 px apart, the last 10 px from the card edge
   static constexpr int SL_X = W - MARGIN - 12 - 120, SL_W = 120;   // brightness slider, 12 px from the card's right edge
-  static constexpr int TG_X = W - MARGIN - 8 - 76, TG_W = 76;      // 76x24 toggle, 8 px from the card's right edge
+  static constexpr int TG_X = W - MARGIN - 8 - 92, TG_W = 92, TG_H = 44;   // 92x24 toggle, two 44 px halves, 8 px from the card's right edge
   enum { R_WIFI, R_LOC, R_BRIGHT, R_SLEEP, R_UNITS, R_THEME, R_ACCENT, R_FLIP, R_STORAGE, R_ABOUT };
   static constexpr int SLEEP_STEPS[] = {0, 1, 2, 5, 10, 30};   // minutes; 0 = never
   bool dragBright = false; int scroll = 0; uint32_t last = 0;
@@ -239,9 +239,9 @@ struct SettingsScreen : Screen {
   void tile(int y, uint16_t col) { frame.fillSmoothRoundRect(MARGIN + 10, y + 6, 24, 24, 6, col); }   // 24 px icon tile r6; glyph centre (34, y+18)
   void toggle(int y, bool right, const char *l, const char *r) {
     frame.fillSmoothRoundRect(TG_X, y + 6, TG_W, 24, 12, C.CARD2);
-    frame.fillSmoothRoundRect(TG_X + 2 + (right ? 36 : 0), y + 8, 36, 20, 10, C.ACCENT);
-    text(TG_X + 20, y + 18, l, right ? C.DIM : C.WHITE, F12M, textdatum_t::middle_center);
-    text(TG_X + 56, y + 18, r, right ? C.WHITE : C.DIM, F12M, textdatum_t::middle_center);
+    frame.fillSmoothRoundRect(TG_X + 2 + (right ? TG_H : 0), y + 8, TG_H, 20, 10, C.ACCENT);
+    text(TG_X + 2 + TG_H / 2, y + 18, l, right ? C.DIM : C.WHITE, F12M, textdatum_t::middle_center);
+    text(TG_X + 2 + TG_H + TG_H / 2, y + 18, r, right ? C.WHITE : C.DIM, F12M, textdatum_t::middle_center);
   }
   void value(int cy, String v, int maxw = 140) { frame.setFont(F12); while (v.length() > 1 && frame.textWidth(v) > maxw) v.remove(v.length() - 1); text(CHEV_X - 18, cy, v.c_str(), C.DIM, F12, textdatum_t::middle_right); }
   void render() override {
