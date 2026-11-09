@@ -13,7 +13,7 @@ A small phone-style OS for the LCDWiki **ES3C28P** board: ESP32-S3, 2.8" 320x240
 - **Robo**: an animated companion face that reacts to the microphone.
 - **Weather**: current conditions and a 5-day forecast from Open-Meteo, for a saved place or your IP location.
 - **Spotify**: a Spotify Connect remote. Now playing with album art, play/pause, skip and volume for whatever device is playing.
-- **Book**: a plain-text reader with a library, chapters, text sizes and saved progress. Books come from the microSD card.
+- **Book**: a text reader with a library, chapters, three text sizes and saved progress. Justified text with best-fit line breaks, hyphenation, italics and bold, in Literata. Books come from the microSD card.
 - **Settings**: Wi-Fi, weather location, brightness, display sleep (backlight off after 1 to 30 idle minutes, any touch wakes it), °C/°F, light/dark theme, 180° rotation, storage and About.
 
 Gestures: swipe in from the left edge to go back, swipe sideways on Home to page through apps, and pull down from the top edge on any screen for the brightness slider.
@@ -53,11 +53,13 @@ The refresh token is stored on the board. Playback control needs Spotify Premium
 
 Open **http://perch.local** on a phone or computer on the same Wi-Fi and drop EPUB files on the page. They are converted in the browser and only the text is uploaded. The same page lists and deletes books.
 
-Books live in `/books` on the microSD card (FAT32), or on a small flash partition when no card is inserted. The book format is `\x02Title\nAuthor\n`, then chapters starting with `\x01Title\n`, one paragraph per line.
+Books live in `/books` on the microSD card (FAT32), or on a small flash partition when no card is inserted. The book format is UTF-8 text: `\x02Title\nAuthor\n`, then chapters starting with `\x01Title\n`, one paragraph per line. `\x03` toggles italic and `\x04` bold (from `<em>` and `<strong>`), and a soft hyphen (U+00AD) marks a hyphenation point. The converters insert soft hyphens for English books from the hyph-utf8 en-US patterns in `portal/hyph-en-us.txt`, which the board also serves to the portal page. The reader breaks lines by minimum raggedness over each paragraph (as CrossPoint Reader does) and justifies them.
+
+Books converted with an older version keep working; drop the EPUB on the portal again to get hyphenation and accented characters.
 
 ## Fonts
 
-The UI uses Plus Jakarta Sans, the reader Literata, and icons come from Lucide. `python fontgen.py` renders the TTFs in `fonts/` into bitmap fonts in `src/fonts_data.h`. Sizes and weights are the `SPECS` table in that script.
+The UI uses Plus Jakarta Sans, the reader Literata (regular, italic, bold and bold italic), and icons come from Lucide. `python fontgen.py` renders the TTFs in `fonts/` into bitmap fonts in `src/fonts_data.h`, covering ASCII, Latin-1 and Latin Extended-A. Sizes and weights are the `SPECS` table in that script.
 
 ## Serial debug
 
@@ -91,4 +93,4 @@ The board listens on USB serial at 115200. `python drive.py 3 'k hello' shot:out
 
 ## Licence
 
-Perch is released under the [GNU GPL v3](LICENSE). The bundled fonts keep their own licences: Plus Jakarta Sans and Literata under the SIL Open Font License, Lucide under ISC (see `fonts/`).
+Perch is released under the [GNU GPL v3](LICENSE). The bundled fonts keep their own licences: Plus Jakarta Sans and Literata under the SIL Open Font License, Lucide under ISC (see `fonts/`). The English hyphenation patterns are by Gerard D.C. Kuiken (see `portal/LICENSE-hyph-en-us.txt`).

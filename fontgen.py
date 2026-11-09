@@ -6,7 +6,10 @@ from PIL import Image, ImageDraw, ImageFont
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FONTS = os.path.join(HERE, "fonts")
-CHARS = [chr(c) for c in range(32, 127)] + list("°·‘’“”–—…")   # ASCII plus degree, middle dot, curly quotes, dashes, ellipsis
+# ASCII, Latin-1 Supplement and Latin Extended-A (accented names and words survive conversion), plus the punctuation the
+# converters keep: quotes, dashes, ellipsis, bullet, primes, currency. The soft hyphen (U+00AD) is a break hint and is never drawn.
+ASCII = [chr(c) for c in range(32, 127)]
+CHARS = ASCII + [chr(c) for c in range(0xA1, 0x180) if c != 0xAD] + list("‘’“”‚„‹›–—…•′″€£")
 
 # Lucide icon glyphs (private-use codepoints from lucide-static's lucide.css), drawn like text in the firmware
 ICONS = {"wifi": 0xE1AE, "battery-charging": 0xE054, "battery-full": 0xE055, "battery-medium": 0xE057, "battery-low": 0xE056,
@@ -20,11 +23,20 @@ SPECS = [   # sizes are multiples of 4 px
     ("ui12m", "PlusJakartaSans.ttf",    12, 500, 14),
     ("ui16",  "PlusJakartaSans.ttf",    16, 400, 14),
     ("ui16b", "PlusJakartaSans.ttf",    16, 600, 14),
-    ("ui24b", "PlusJakartaSans.ttf",    24, 700, 24),
-    ("ui40b", "PlusJakartaSans.ttf",    40, 700, 32),
+    ("ui24b", "PlusJakartaSans.ttf",    24, 700, 24, ASCII),   # clock and temperature only
+    ("ui40b", "PlusJakartaSans.ttf",    40, 700, 32, ASCII),
     ("rd12",  "Literata.ttf", 12, 400, 12),
     ("rd16",  "Literata.ttf", 16, 400, 12),
     ("rd20",  "Literata.ttf", 20, 400, 12),
+    ("rd12i", "Literata-Italic.ttf", 12, 400, 12),   # reader italic, bold and bold italic: the converters mark <em> and <strong>
+    ("rd16i", "Literata-Italic.ttf", 16, 400, 12),
+    ("rd20i", "Literata-Italic.ttf", 20, 400, 12),
+    ("rd12b", "Literata.ttf", 12, 700, 12),
+    ("rd16b", "Literata.ttf", 16, 700, 12),
+    ("rd20b", "Literata.ttf", 20, 700, 12),
+    ("rd12z", "Literata-Italic.ttf", 12, 700, 12),
+    ("rd16z", "Literata-Italic.ttf", 16, 700, 12),
+    ("rd20z", "Literata-Italic.ttf", 20, 700, 12),
     ("ic12",  "Lucide.ttf", 12, 400, 0, ICON_CHARS),   # icon sizes follow the design: 12 lock, 14 tiles, 16 rows, 18 status, 20 back
     ("ic14",  "Lucide.ttf", 14, 400, 0, ICON_CHARS),
     ("ic16",  "Lucide.ttf", 16, 400, 0, ICON_CHARS),

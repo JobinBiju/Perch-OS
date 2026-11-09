@@ -1,7 +1,8 @@
 #pragma once
-// Book reader: plain-text books (from book_convert.py or the web portal) on the SD card / flash,
-// plus one embedded in the firmware. A book is loaded whole into PSRAM and paginated per chapter
-// with word wrap. Tap right / swipe left for the next page, left for the previous one, centre for the menu.
+// Book reader: UTF-8 text books (from book_convert.py or the web portal) on the SD card / flash,
+// plus one embedded in the firmware. A book is loaded whole into PSRAM and each chapter is laid out with
+// best-fit line breaks, soft-hyphen breaks and justification (see the layout engine below).
+// Tap right / swipe left for the next page, left for the previous one, centre for the menu.
 #include "ui.h"
 #include "net.h"
 #include "storage.h"
@@ -15,7 +16,7 @@ struct Book {
   static constexpr int MAXCH = 256;
   const char *chTitle[MAXCH]; int chTitleLen[MAXCH]; const char *chText[MAXCH]; const char *chEnd[MAXCH]; int nch = 0;
   // current chapter layout
-  int ch = -1, fontIdx = 1; const char **pages = nullptr; int npages = 0, page = 0; uint32_t stamp = 0;   // stamp: open order, for the library sort
+  int ch = -1, fontIdx = 1; int *pages = nullptr; int npages = 0, page = 0; uint32_t stamp = 0;   // pages: first line index of each page; stamp: open order, for the library sort
   // layout geometry
   int textX = MARGIN, textY = 30, textW = W - 2 * MARGIN, lineH = 22, lines = 8, lines0 = 6, headH = 0;   // lines0: first page, below the chapter heading
 } book;
@@ -23,7 +24,11 @@ struct Book {
 struct LibEntry { String file, title, author; uint32_t size; int pct; uint32_t last; };   // last: open order (0 = never opened)
 static constexpr int MAXLIB = 40; LibEntry lib[MAXLIB]; int nlib = 0;
 
-const lgfx::IFont *bookFont(int i) { return i == 0 ? RD12 : i == 1 ? RD16 : RD20; }
+// reader faces by text size (0..2) and style bits (1 italic, 2 bold)
+const lgfx::IFont *bookFont(int i, int style = 0) {
+  static const lgfx::IFont *const faces[3][4] = {{RD12, RD12I, RD12B, RD12Z}, {RD16, RD16I, RD16B, RD16Z}, {RD20, RD20I, RD20B, RD20Z}};
+  return faces[constrain(i, 0, 2)][style & 3];
+}
 
 // parse the "\x02Title\nAuthor\n" header; returns the byte after it
 const char *bookHeader(const char *p, const char *e, String &title, String &author) {
@@ -56,23 +61,90 @@ bool bookProgress(const String &file, int &ch, int &off, uint32_t *stamp = nullp
 }
 uint32_t bookNextStamp() { prefs.begin("books", false); uint32_t n = prefs.getUInt("seq", 0) + 1; prefs.putUInt("seq", n); prefs.end(); return n; }
 
-// greedy word wrap of [p, end): returns where the next line starts. `w` receives the line's text width.
-const char *bookWrapLine(const char *p, const char *end, int maxw) {
-  const char *nl = (const char *)memchr(p, '\n', end - p); const char *pe = nl ? nl : end; // paragraph end
-  if (p == pe) return pe + 1;
-  int used = 0; const char *q = p, *lastFit = nullptr;
-  int spaceW = frame.textWidth(" ");
-  while (q < pe) {
-    const char *ws = q; while (ws < pe && *ws != ' ') ws++;
-    char tmp[128]; int n = min((int)(ws - q), 127); memcpy(tmp, q, n); tmp[n] = 0;
-    int ww = frame.textWidth(tmp);
-    if (used && used + spaceW + ww > maxw) return lastFit;          // this word goes on the next line
-    if (!used && ww > maxw) {                                         // single word wider than the line: split it
-      int k = n; while (k > 1) { tmp[--k] = 0; if (frame.textWidth(tmp) <= maxw) break; } return q + k;
-    }
-    used += (used ? spaceW : 0) + ww; q = ws; while (q < pe && *q == ' ') q++; lastFit = q;
+// ---- layout engine ----
+// Text is UTF-8. A soft hyphen (U+00AD, bytes C2 AD) marks where a word may break; it is never drawn.
+// \x03 toggles italic and \x04 toggles bold (set by the converters for <em> and <strong>); both are paragraph-local.
+// Each paragraph is split into fragments (words, or word parts at soft hyphens) and the line breaks are chosen
+// by a minimum-raggedness dynamic program (as CrossPoint Reader does): the sum over the paragraph's lines of
+// the squared spare space is minimised, the last line costs nothing and a hyphenated break pays HYPH_PEN.
+// Lines are then justified at draw time by spreading the spare space over the word gaps.
+static int16_t advCache[3][4][0x180 + 0x100];   // glyph advances per text size and style: codepoints < U+0180 and U+2000..U+20FF
+static inline int utf8Next(const char *&p, const char *e) {
+  uint8_t c = (uint8_t)*p++; if (c < 0x80) return c;
+  int n = c >= 0xF0 ? 3 : c >= 0xE0 ? 2 : 1, cp = c & (0x3F >> n);
+  while (n-- > 0 && p < e) cp = (cp << 6) | ((uint8_t)*p++ & 0x3F);
+  return cp;
+}
+int glyphAdv(int cp, int style = 0) {
+  int slot = cp < 0x180 ? cp : (cp >= 0x2000 && cp < 0x2100) ? 0x180 + (cp - 0x2000) : -1;
+  int16_t *c = slot >= 0 ? &advCache[book.fontIdx][style & 3][slot] : nullptr; if (c && *c) return *c;
+  char u[5]; int n = 0;
+  if (cp < 0x80) u[n++] = cp; else if (cp < 0x800) { u[n++] = 0xC0 | (cp >> 6); u[n++] = 0x80 | (cp & 0x3F); }
+  else { u[n++] = 0xE0 | (cp >> 12); u[n++] = 0x80 | ((cp >> 6) & 0x3F); u[n++] = 0x80 | (cp & 0x3F); }
+  u[n] = 0; char uu[9]; memcpy(uu, u, n); memcpy(uu + n, u, n + 1);
+  frame.setFont(bookFont(book.fontIdx, style));
+  int w = frame.textWidth(uu) - frame.textWidth(u);   // textWidth of one glyph is its ink extent (italics overhang): "cc" - "c" is the advance
+  if (c) *c = w; return w;
+}
+int runWidth(const char *p, const char *e, int style = 0) { int w = 0; while (p < e) { int cp = utf8Next(p, e); if (cp != 0xAD) w += glyphAdv(cp, style); } return w; }
+static inline bool isToggle(char c) { return c == 3 || c == 4; }
+int stripShy(const char *p, const char *e, char *out, int cap) {   // copy [p, e) without soft hyphens; returns the length
+  int n = 0; while (p < e && n < cap - 1) { if ((uint8_t)p[0] == 0xC2 && p + 1 < e && (uint8_t)p[1] == 0xAD) { p += 2; continue; } out[n++] = *p++; } out[n] = 0; return n;
+}
+
+struct Frag { const char *s, *e; int16_t w; bool word, hyph; uint8_t style; };   // word: a space precedes it; hyph: a soft hyphen follows it
+struct Line { const char *s, *e; bool hyph, last, first; uint8_t style; };       // hyph: draw a '-' at the end; first/last line of its paragraph; style at the line start
+static constexpr int INDENT = 18;                                   // first-line indent of a paragraph
+static Frag *frags = nullptr; static int nfrags = 0, fragCap = 0;
+static Line *lines = nullptr; static int nlines = 0, lineCap = 0;
+static int64_t *lcost = nullptr; static int *lnext = nullptr; static int costCap = 0, nextCap = 0;
+template <class T> void grow(T *&a, int &cap, int need) { if (need <= cap) return; cap = max(need, cap ? cap * 2 : 256); a = (T *)ps_realloc(a, cap * sizeof(T)); }
+void pushFrag(const char *s, const char *e, bool word, bool hyph, uint8_t style, int maxw) {
+  int w = runWidth(s, e, style);
+  while (w > maxw && e - s > 1) {   // a word wider than the line: cut it at a codepoint boundary
+    const char *q = s, *fit = s + 1; int ww = 0;
+    while (q < e) { const char *n = q; int cp = utf8Next(n, e); int a = cp == 0xAD ? 0 : glyphAdv(cp, style); if (ww + a > maxw && q > s) break; ww += a; q = n; fit = q; }
+    grow(frags, fragCap, nfrags + 1); frags[nfrags++] = {s, fit, (int16_t)ww, word, false, style}; word = false; s = fit; w = runWidth(s, e, style);
   }
-  return pe < end ? pe + 1 : end; // end of paragraph: skip the newline
+  grow(frags, fragCap, nfrags + 1); frags[nfrags++] = {s, e, (int16_t)w, word, hyph, style};
+}
+// split a paragraph into fragments at spaces, soft hyphens and style toggles
+void bookFragments(const char *p, const char *pe, int maxw) {
+  nfrags = 0; bool word = true; uint8_t style = 0; const char *s = p;
+  auto flush = [&](const char *e, bool hy) { if (e > s) { pushFrag(s, e, word, hy, style, maxw); word = false; } };
+  while (p < pe) {
+    uint8_t c = (uint8_t)*p;
+    if (c == ' ') { flush(p, false); p++; s = p; word = true; }
+    else if (isToggle(c)) { flush(p, false); style ^= (c == 3 ? 1 : 2); p++; s = p; }
+    else if (c == 0xC2 && p + 1 < pe && (uint8_t)p[1] == 0xAD) { flush(p, true); p += 2; s = p; }
+    else p++;
+  }
+  flush(pe, false);
+}
+void bookBreakParagraph(int maxw, int spaceW, int hyphW) {
+  int n = nfrags; if (!n) return;
+  const int64_t HYPH_PEN = (int64_t)(maxw / 7) * (maxw / 7);   // a hyphen is worth about 42 px of raggedness on a 296 px line
+  grow(lcost, costCap, n + 1); grow(lnext, nextCap, n + 1); int *nxt = lnext;
+  lcost[n] = 0;
+  for (int i = n - 1; i >= 0; i--) {
+    int64_t best = INT64_MAX; int bestJ = i, w = 0, lim = i == 0 ? maxw - INDENT : maxw;   // the first line is indented
+    for (int j = i; j < n; j++) {
+      if (j > i && frags[j].word) w += spaceW;
+      w += frags[j].w;
+      bool wordEnd = j == n - 1 || frags[j + 1].word, hy = !wordEnd && frags[j].hyph;
+      int lw = w + (hy ? hyphW : 0);
+      if (lw > lim) { if (best == INT64_MAX) { best = lcost[j + 1] + 1000000; bestJ = j; } break; }
+      if (!wordEnd && !hy) continue;
+      int slack = lim - lw; int64_t c = (j == n - 1 ? 0 : (int64_t)slack * slack) + lcost[j + 1];
+      if (hy) c += nxt[j + 1] == n - 1 ? 3 * HYPH_PEN : HYPH_PEN;   // like TeX, a hyphen right before the last line costs extra
+      if (c < best) { best = c; bestJ = j; }
+    }
+    lcost[i] = best; nxt[i] = bestJ;
+  }
+  for (int i = 0; i < n; i = nxt[i] + 1) {
+    int j = nxt[i]; bool wordEnd = j == n - 1 || frags[j + 1].word;
+    grow(lines, lineCap, nlines + 1); lines[nlines++] = {frags[i].s, frags[j].e, !wordEnd, j == n - 1, i == 0, frags[i].style};
+  }
 }
 
 // chapter heading split: "2  The Anthropocene" -> number 2, title "The Anthropocene"; no number -> num = 0
@@ -89,26 +161,33 @@ void bookLayoutGeometry() {
   const char *t; int l; book.headH = book.ch < 0 ? 0 : (bookChapterNum(book.ch, t, l) ? 20 : 0) + 24 + 8;   // "CHAPTER n" line, RD20 title, 8 px gap
   book.lines0 = (218 - book.textY - book.headH) / book.lineH;
 }
-// paginate the current chapter; pages[] holds the start of each page
+// lay out the current chapter: lines[] for the whole chapter, pages[] = index of each page's first line
 void bookPaginate() {
   bookLayoutGeometry();
   if (book.pages) { free(book.pages); book.pages = nullptr; }
-  book.npages = 0; if (book.ch < 0) return;
-  int cap = 64; book.pages = (const char **)ps_malloc(cap * sizeof(char *));
+  book.npages = 0; nlines = 0; if (book.ch < 0) return;
+  uint32_t t0 = millis();
+  int spaceW = glyphAdv(' '), hyphW = glyphAdv('-');
   const char *p = book.chText[book.ch], *e = book.chEnd[book.ch];
   while (p < e) {
-    if (book.npages == cap) { cap *= 2; book.pages = (const char **)ps_realloc(book.pages, cap * sizeof(char *)); }
-    book.pages[book.npages++] = p;
-    int lines = book.npages == 1 ? book.lines0 : book.lines;
-    for (int l = 0; l < lines && p < e; l++) p = bookWrapLine(p, e, book.textW);
+    const char *nl = (const char *)memchr(p, '\n', e - p), *pe = nl ? nl : e;
+    if (pe > p) { bookFragments(p, pe, book.textW); bookBreakParagraph(book.textW, spaceW, hyphW); }
+    p = pe + 1;
   }
-  if (!book.npages) { book.pages[0] = e; book.npages = 1; }
+  int cap = 64; book.pages = (int *)ps_malloc(cap * sizeof(int));
+  for (int l = 0; l < nlines; l += book.npages == 1 ? book.lines0 : book.lines) {
+    if (book.npages == cap) { cap *= 2; book.pages = (int *)ps_realloc(book.pages, cap * sizeof(int)); }
+    book.pages[book.npages++] = l;
+  }
+  if (!book.npages) { book.pages[0] = 0; book.npages = 1; }
+  Serial.printf("book: chapter %d laid out, %d lines, %d pages in %lu ms\n", book.ch, nlines, book.npages, (unsigned long)(millis() - t0));
 }
-int bookPageFor(const char *off) { int i = 0; while (i + 1 < book.npages && book.pages[i + 1] <= off) i++; return i; }
+const char *bookPageStart(int page) { return nlines ? lines[book.pages[page]].s : book.chText[book.ch]; }
+int bookPageFor(const char *off) { int i = 0; while (i + 1 < book.npages && bookPageStart(i + 1) <= off) i++; return i; }
 void bookSave() {
   if (book.ch < 0) return;
   prefs.begin("books", false);
-  prefs.putString(bookKey(book.file).c_str(), String(book.ch) + " " + String((int)(book.pages[book.page] - book.data)) + " " + String(book.stamp));
+  prefs.putString(bookKey(book.file).c_str(), String(book.ch) + " " + String((int)(bookPageStart(book.page) - book.data)) + " " + String(book.stamp));
   prefs.putString("last", book.file.length() ? book.file : "*"); prefs.putInt("font", book.fontIdx); prefs.end();
 }
 void bookOpen(int ch, const char *off = nullptr) {
@@ -133,8 +212,8 @@ bool bookLoad(const String &file) {
   return true;
 }
 void bookBegin() { prefs.begin("books", true); book.fontIdx = prefs.getInt("font", 1); prefs.end(); }
-void bookSetFont(int f) { const char *off = book.pages ? book.pages[book.page] : nullptr; book.fontIdx = constrain(f, 0, 2); bookPaginate(); book.page = off ? bookPageFor(off) : 0; bookSave(); }
-int bookPercent() { if (book.ch < 0) return 0; return (int)((book.pages[book.page] - book.data) * 100LL / (book.dataEnd - book.data)); }
+void bookSetFont(int f) { const char *off = book.pages ? bookPageStart(book.page) : nullptr; book.fontIdx = constrain(f, 0, 2); bookPaginate(); book.page = off ? bookPageFor(off) : 0; bookSave(); }
+int bookPercent() { if (book.ch < 0) return 0; return (int)((bookPageStart(book.page) - book.data) * 100LL / (book.dataEnd - book.data)); }
 
 // ---- library: the embedded book plus every .txt under /books ----
 int libPercent(const String &file, uint32_t size, uint32_t *last = nullptr) { int ch, off; if (!bookProgress(file, ch, off, last) || !size) return -1; return constrain((int)(off * 100LL / size), 0, 100); }   // -1: never opened
@@ -293,21 +372,35 @@ struct BookScreen : Screen {
     text(24, 10, t, C.DIM, F12, textdatum_t::middle_left);
     text(W - 36, 10, clockValid() ? clockHHMM().c_str() : "", C.DIM, F12, textdatum_t::middle_right); batteryIcon(W - 21, 10);
     // body
-    const lgfx::IFont *f = bookFont(book.fontIdx); int y = book.textY;
+    int y = book.textY;
     if (book.page == 0) {   // chapter heading on the first page
       if (num) { char c[24]; snprintf(c, sizeof c, "CHAPTER %d", num); text(book.textX, y + 7, c, C.DIM, F12M, textdatum_t::middle_left); y += 20; }
       char ht[64]; int hn = min(cl, 63); memcpy(ht, ct, hn); ht[hn] = 0; frame.setFont(RD20); while (hn > 1 && frame.textWidth(ht) > book.textW) ht[--hn] = 0;
       text(book.textX, y + 12, ht, C.TEXT, RD20, textdatum_t::middle_left); y = book.textY + book.headH;
     }
-    frame.setFont(f);
-    const char *p = book.pages[book.page], *e = book.chEnd[book.ch];
-    int lines = book.page == 0 ? book.lines0 : book.lines;
-    for (int l = 0; l < lines && p < e; l++) {
-      const char *q = bookWrapLine(p, e, book.textW);
-      const char *le = q; while (le > p && (le[-1] == '\n' || le[-1] == ' ')) le--;
-      char line[200]; int m = min((int)(le - p), 199); memcpy(line, p, m); line[m] = 0;
-      text(book.textX, y, line, C.TEXT, f);
-      y += book.lineH; p = q;
+    int spaceW = glyphAdv(' '), hyphW = glyphAdv('-');
+    int first = book.pages[book.page], last = min(nlines, first + (book.page == 0 ? book.lines0 : book.lines));
+    for (int li = first; li < last; li++) {
+      const Line &L = lines[li];
+      // runs are the pieces between spaces and style toggles: measure the line, then draw it justified
+      int gaps = 0, width = L.hyph ? hyphW : 0; uint8_t st = L.style;
+      for (const char *p = L.s; p < L.e;) {
+        if (*p == ' ') { gaps++; p++; continue; } if (isToggle(*p)) { st ^= *p == 3 ? 1 : 2; p++; continue; }
+        const char *q = p; while (q < L.e && *q != ' ' && !isToggle(*q)) q++; width += runWidth(p, q, st); p = q;
+      }
+      int indent = L.first ? INDENT : 0, slack = book.textW - indent - width - gaps * spaceW;
+      bool just = !L.last && gaps > 0 && slack > 0 && slack <= book.textW / 3;   // a very loose line reads better ragged
+      int extra = just ? slack / gaps : 0, rem = just ? slack % gaps : 0;
+      int x = book.textX + indent, g = 0; st = L.style;
+      for (const char *p = L.s; p < L.e;) {
+        if (*p == ' ') { x += spaceW + extra + (g < rem ? 1 : 0); g++; p++; continue; }
+        if (isToggle(*p)) { st ^= *p == 3 ? 1 : 2; p++; continue; }
+        const char *q = p; while (q < L.e && *q != ' ' && !isToggle(*q)) q++;
+        char word[256]; int n = stripShy(p, q, word, 254); bool hy = q == L.e && L.hyph;
+        if (hy) { word[n++] = '-'; word[n] = 0; }
+        text(x, y, word, C.TEXT, bookFont(book.fontIdx, st)); x += runWidth(p, q, st) + (hy ? hyphW : 0); p = q;
+      }
+      y += book.lineH;
     }
     // footer: page in chapter, book progress
     textf(MARGIN, 227, C.DIM, F12, textdatum_t::middle_left, "%d / %d", book.page + 1, book.npages);

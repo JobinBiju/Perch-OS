@@ -57,9 +57,11 @@ async function refresh() {
   } catch (e) { $("#books").innerHTML = '<div class="empty">Board not reachable</div>'; }
 }
 function job(name) { const d = document.createElement("div"); d.className = "job"; d.innerHTML = `<div class="name"></div><div class="st">reading...</div><div class="bar"><i></i></div>`; d.querySelector(".name").textContent = name; $("#log").prepend(d); return d; }
+let hyphReady = false;
 async function addFile(file) {
   const j = job(file.name), st = j.querySelector(".st"), bar = j.querySelector(".bar i");
   try {
+    if (!hyphReady) { try { BookConvert.setHyphenationPatterns(await (await fetch("/hyph-en-us.txt")).text()); } catch (e) {} hyphReady = true; }
     const zip = await JSZip.loadAsync(await file.arrayBuffer());
     st.textContent = "converting..."; bar.style.width = "30%";
     const b = await BookConvert.convertEpub(zip);

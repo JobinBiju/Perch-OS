@@ -22,6 +22,15 @@ FLASH_FONT(F40B, ui40b)    // Plus Jakarta Sans Bold 40 px: home clock
 FLASH_FONT(RD12, rd12)    // Literata 12 px: reader small
 FLASH_FONT(RD16, rd16)    // Literata 16 px: reader medium
 FLASH_FONT(RD20, rd20)    // Literata 20 px: reader large
+FLASH_FONT(RD12I, rd12i)   // reader italic / bold / bold italic in the same three sizes
+FLASH_FONT(RD16I, rd16i)
+FLASH_FONT(RD20I, rd20i)
+FLASH_FONT(RD12B, rd12b)
+FLASH_FONT(RD16B, rd16b)
+FLASH_FONT(RD20B, rd20b)
+FLASH_FONT(RD12Z, rd12z)
+FLASH_FONT(RD16Z, rd16z)
+FLASH_FONT(RD20Z, rd20z)
 FLASH_FONT(IC12, ic12)    // Lucide icons: 12 lock, 14 settings tiles, 16 list rows + status wifi, 18 status battery, 20 back chevron
 FLASH_FONT(IC14, ic14)
 FLASH_FONT(IC16, ic16)
@@ -29,6 +38,6 @@ FLASH_FONT(IC18, ic18)
 FLASH_FONT(IC20, ic20)
 
 void fontsBegin() {
-  FlashFont *all[] = {&F12_, &F12M_, &F16_, &F16B_, &F24B_, &F40B_, &RD12_, &RD16_, &RD20_, &IC12_, &IC14_, &IC16_, &IC18_, &IC20_};
+  FlashFont *all[] = {&F12_, &F12M_, &F16_, &F16B_, &F24B_, &F40B_, &RD12_, &RD16_, &RD20_, &RD12I_, &RD16I_, &RD20I_, &RD12B_, &RD16B_, &RD20B_, &RD12Z_, &RD16Z_, &RD20Z_, &IC12_, &IC14_, &IC16_, &IC18_, &IC20_};
   for (auto f : all) if (!f->begin()) Serial.println("fonts: load failed");
 }

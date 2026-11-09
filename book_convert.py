@@ -1,7 +1,9 @@
-# Convert an EPUB into the plain-text book format the Perch reader embeds in firmware.
+# Convert an EPUB into the text format the Perch reader uses (the portal does the same in the browser).
 # Usage: python book_convert.py "book.epub" [data/book.txt]
-# Output format: chapters start with a line "\x01<title>", then one paragraph per line, ASCII only.
-import sys, re, html, zipfile, posixpath, unicodedata
+# Output: "\x02Title\nAuthor\n", then chapters starting with a line "\x01<title>", one paragraph per line.
+# UTF-8 limited to the board's fonts (ASCII, Latin-1, Latin Extended-A, common punctuation); English text gets
+# soft hyphens (U+00AD) at the break points of the hyph-utf8 en-US patterns in portal/hyph-en-us.txt.
+import sys, re, html, zipfile, posixpath, unicodedata, os
 
 src = sys.argv[1]
 dst = sys.argv[2] if len(sys.argv) > 2 else "data/book.txt"
@@ -27,38 +29,78 @@ if ncx:
         f = posixpath.normpath(posixpath.join(posixpath.dirname(ncx), m.group(2)))
         toc.setdefault(f, re.sub(r"\s+", " ", html.unescape(m.group(1))).strip())
 
-REPL = {"‘": "'", "’": "'", "“": '"', "”": '"', "–": "-", "—": "-", "…": "...",
-        " ": " ", "­": "", "•": "*", "©": "(c)", "′": "'", "″": '"', "×": "x"}
-def ascii(s):
-    s = "".join(REPL.get(c, c) for c in s)
-    s = unicodedata.normalize("NFKD", s)
-    return "".join(c for c in s if ord(c) < 128 and (c >= " " or c == "\n"))
+MAP = {"\u00A0": " ", "\u2011": "-", "\u2010": "-", "\u2212": "-", "\u00AD": "", "\u200B": "", "\u200C": "", "\u200D": "", "\uFEFF": "", "\t": " "}
+KEEP = set("‘’“”‚„‹›–—…•′″€£")
+def clean(s):
+    o = []
+    for c in unicodedata.normalize("NFC", s):
+        if c in MAP: o.append(MAP[c]); continue
+        k = ord(c)
+        if 32 <= k < 127 or 0xA1 <= k < 0x180 or c in KEEP or c in "\n\x03\x04": o.append(c); continue
+        if k < 0xA1: continue
+        o.extend(b for b in unicodedata.normalize("NFKD", c) if 32 <= ord(b) < 127)
+    return "".join(o)
+
+# Liang hyphenation, en-US patterns; left min 2, right min 3
+PATS, PMAX = {}, 0
+for line in open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "portal", "hyph-en-us.txt")):
+    p = line.strip()
+    if not re.fullmatch(r"[.a-z0-9]+", p): continue
+    letters = re.sub(r"\d", "", p); v = [0] * (len(letters) + 1); li = 0
+    for ch in p:
+        if ch.isdigit(): v[li] = max(v[li], int(ch))
+        else: li += 1
+    PATS[letters] = v; PMAX = max(PMAX, len(letters))
+def hyphen_points(w):
+    s = "." + w + "."; n = len(s); pts = [0] * (n + 1)
+    for i in range(n):
+        for j in range(i + 1, min(n, i + PMAX) + 1):
+            v = PATS.get(s[i:j])
+            if v:
+                for k, d in enumerate(v):
+                    if d > pts[i + k]: pts[i + k] = d
+    return [m for m in range(2, len(w) - 2) if pts[m + 1] % 2]
+def hyphenate(p):
+    def word(m):
+        w = m.group(0); o = ""; last = 0
+        for k in hyphen_points(w.lower()): o += w[last:k] + "\u00AD"; last = k
+        return o + w[last:]
+    return re.sub(r"[A-Za-z]{5,}", word, p)
+lang = (re.search(r"<dc:language[^>]*>(.*?)</dc:language>", opf, re.S) or [None, "en"])[1].strip().lower()
+hyph = hyphenate if lang.startswith("en") else (lambda p: p)
 
 def paragraphs(doc):
     doc = re.sub(r"<(style|script|head)\b.*?</\1>", "", doc, flags=re.S | re.I)
     doc = re.sub(r"<br\s*/?>", "\n", doc, flags=re.I)
-    doc = re.sub(r"</(p|div|h[1-6]|li|tr|blockquote|dd|dt)>", "\n", doc, flags=re.I)
+    doc = re.sub(r"</?(em|i|cite)\b[^>]*>", "\x03", doc, flags=re.I)                  # italic on/off
+    doc = re.sub(r"</?(strong|b)\b[^>]*>", "\x04", doc, flags=re.I)                   # bold on/off
+    doc = re.sub(r"<h[1-6]\b[^>]*>", "\n\x04", doc, flags=re.I); doc = re.sub(r"</h[1-6]>", "\x04\n", doc, flags=re.I)   # headings inside a chapter
+    doc = re.sub(r"</(p|div|li|tr|blockquote|dd|dt)>", "\n", doc, flags=re.I)
     doc = re.sub(r"<[^>]+>", "", doc)
     out = []
     for p in html.unescape(doc).split("\n"):
-        p = ascii(re.sub(r"\s+", " ", p)).strip()
-        if p: out.append(p)
+        p = re.sub(r"\s+", " ", clean(p)).strip()
+        if not re.sub(r"[\x03\x04]", "", p).strip(): continue
+        p = p.replace("\x03\x03", "").replace("\x04\x04", "")
+        for t in "\x03\x04":
+            if p.count(t) % 2: p = p[:-1] if p.endswith(t) else p + t   # styles end with the paragraph
+        out.append(p)
     return out
 
 chapters = []   # [title, [paragraphs]]
 for f in spine:
     if f not in z.namelist(): continue
     paras = paragraphs(z.read(f).decode("utf-8", "replace"))
-    if f not in toc and paras and paras[0].lower() in ("contents", "table of contents"): continue  # skip the TOC page
-    if f in toc: chapters.append([ascii(toc[f]), []])
+    if f not in toc and paras and re.sub(r"[\x03\x04]", "", paras[0]).lower() in ("contents", "table of contents"): continue  # skip the TOC page
+    if f in toc: chapters.append([re.sub(r"[\x03\x04]", "", clean(toc[f])), []])
     if not chapters:
         if not paras: continue
-        chapters.append([ascii(title), []])
-    chapters[-1][1].extend(paras)
+        chapters.append([clean(title), []])
+    chapters[-1][1].extend(hyph(p) for p in paras)
 chapters = [c for c in chapters if c[1]]
 
-with open(dst, "w") as o:
-    o.write("\x02" + ascii(title) + "\n" + ascii(author) + "\n")
+with open(dst, "w", encoding="utf-8") as o:
+    o.write("\x02" + clean(title) + "\n" + clean(author) + "\n")
     for t, ps in chapters:
         o.write("\x01" + t + "\n")
         for p in ps: o.write(p + "\n")

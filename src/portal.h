@@ -11,6 +11,8 @@ extern const char portalHtml[] asm("_binary_portal_index_html_start");
 extern const char portalHtmlEnd[] asm("_binary_portal_index_html_end");
 extern const char portalJs[] asm("_binary_portal_convert_js_start");
 extern const char portalJsEnd[] asm("_binary_portal_convert_js_end");
+extern const char portalHyph[] asm("_binary_portal_hyph_en_us_txt_start");
+extern const char portalHyphEnd[] asm("_binary_portal_hyph_en_us_txt_end");
 
 WebServer portal(80);
 bool portalUp = false, mdnsUp = false;
@@ -57,6 +59,7 @@ void portalUpload() {   // multipart chunks arrive here; the response goes out i
 void portalBegin() {
   portal.on("/", HTTP_GET, []() { portal.send_P(200, "text/html", portalHtml, portalHtmlEnd - portalHtml - 1); });
   portal.on("/convert.js", HTTP_GET, []() { portal.send_P(200, "application/javascript", portalJs, portalJsEnd - portalJs - 1); });
+  portal.on("/hyph-en-us.txt", HTTP_GET, []() { portal.send_P(200, "text/plain", portalHyph, portalHyphEnd - portalHyph - 1); });   // hyphenation patterns for the converter
   portal.on("/api/books", HTTP_GET, portalBooks);
   portal.on("/api/upload", HTTP_POST, []() { if (upOk) portal.send(200, "text/plain", "ok"); else portal.send(bookFS ? 400 : 507, "text/plain", bookFS ? "upload failed: bad name or storage full" : "no storage on the board"); }, portalUpload);
   portal.on("/api/delete", HTTP_POST, []() {
