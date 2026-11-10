@@ -55,7 +55,7 @@ Three idle timeouts in Settings, each tapped to cycle its value:
 
 The touch that wakes the screen does nothing else. Light and deep sleep only start when no computer is attached over USB, so the board stays reachable for flashing; a wall charger does not count. Book progress is saved before deep sleep. The currents are estimates, not measurements.
 
-Settings > Battery shows the charge level, cell voltage, the voltage trend and the change since power-on. The charger has no status line to the chip, so the level is read from voltage and reads high while charging.
+Settings > Battery shows the charge level, cell voltage, the voltage trend and the change since power-on. The charger has no status line to the chip, so charging is inferred: a computer on USB, or the voltage step when a cable goes in or out. While charging, that step is subtracted before the level is worked out, and near the top the level is walked up over the top-off time, so the figure is an estimate.
 
 ## Spotify
 

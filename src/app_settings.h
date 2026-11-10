@@ -226,8 +226,7 @@ struct StorageScreen : Screen {
 } storageScreen;
 
 // ---------- battery ----------
-// The TP4054 charger has no status line, so the level is read from the cell voltage (it reads high while charging)
-// and "charging" is inferred from a USB host or a rising voltage.
+// The TP4054 charger has no status line: battery.h infers plugged/charging and corrects the level for the charger's lift.
 struct BatteryScreen : Screen {
   uint32_t last = 0;
   const char *name() override { return "Battery"; }
@@ -252,14 +251,14 @@ struct BatteryScreen : Screen {
     for (int i = 0; i < 4; i++) {
       int cy = y + 16 + i * 20; if (i < 3) frame.drawFastHLine(MARGIN + 12, cy + 9, ROW_W - 24, C.CARD2);
       switch (i) {
-        case 0: kv(cy, "Voltage", String(bat.mv / 1000.0f, 2) + " V"); break;
+        case 0: kv(cy, "Voltage", String(bat.mv / 1000.0f, 2) + " V" + (bat.charging && !bat.cvSince ? " \xC2\xB7 cell about " + String((bat.mv - bat.lift) / 1000.0f, 2) + " V" : String(""))); break;
         case 1: { int m = bat.nh - 1; kv(cy, "Trend", m < 1 ? String("measuring...") : String(bat.trend > 0 ? "+" : "") + String(bat.trend) + " mV in " + String(m) + " min"); break; }
         case 2: { uint32_t mn = bat.t0 ? (millis() - bat.t0) / 60000 : 0; char t[16]; snprintf(t, sizeof t, "%lu:%02lu", (unsigned long)(mn / 60), (unsigned long)(mn % 60));
           kv(cy, "Since power-on", bat.t0 ? String(bat.pct0) + "% to " + String(bat.pct) + "% in " + t : String("-")); break; }
-        case 3: kv(cy, "Power", bat.host ? "USB, computer" : bat.charging || bat.full ? "USB, charger" : "Battery"); break;
+        case 3: kv(cy, "Power", bat.host ? "USB, computer" : bat.usb ? "USB, charger" : "Battery"); break;
       }
     }
-    text(W / 2, 231, "Level is read from voltage: high while charging", C.DIM, F12, textdatum_t::middle_center);
+    text(W / 2, 231, bat.usb ? "While charging the level is an estimate" : "Level is read from the cell voltage", C.DIM, F12, textdatum_t::middle_center);
   }
   void tick() override { if (millis() - last > 2000) { last = millis(); dirty = true; } }
 } batteryScreen;
