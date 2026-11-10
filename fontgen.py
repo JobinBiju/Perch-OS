@@ -44,6 +44,35 @@ SPECS = [   # sizes are multiples of 4 px
     ("ic20",  "Lucide.ttf", 20, 400, 0, ICON_CHARS),
 ]
 
+# The battery glyphs are redrawn on the pixel grid: at these sizes the outline's 1.5 px stroke and three bars smear together.
+# px: body w, body h, bar w, bar gap, nub w, nub h, corner radius. The stroke and the bars' clearance from the wall are 1 px.
+BATTERY = {14: (12, 8, 2, 1, 1, 2, 2), 16: (14, 9, 2, 2, 1, 3, 2.5), 18: (14, 10, 2, 2, 2, 4, 2.5), 20: (15, 11, 3, 1, 2, 5, 3)}
+BARS = {ICONS["battery-full"]: 3, ICONS["battery-medium"]: 2, ICONS["battery-low"]: 1, ICONS["battery-charging"]: 0}
+SS = 8   # supersampling for the drawn glyphs
+
+def battery(px, bars, bolt):
+    bw, bh, barw, gap, nubw, nubh, r = BATTERY[px]
+    w, h = bw + 1 + nubw, bh
+    im = Image.new("L", (w * SS, h * SS), 0); d = ImageDraw.Draw(im)
+    def rect(x0, y0, x1, y1, rad=0, fill=255): d.rounded_rectangle([x0 * SS, y0 * SS, x1 * SS - 1, y1 * SS - 1], rad * SS, fill=fill)
+    rect(0, 0, bw, bh, r); rect(1, 1, bw - 1, bh - 1, r - 1, 0)
+    rect(bw + 1, (bh - nubh) / 2, w, (bh + nubh) / 2, nubw / 2)
+    for i in range(bars): x = 2 + i * (barw + gap); rect(x, 2, x + barw, bh - 2, 0.5)
+    if bolt:   # Lucide's bolt (m11 7 -3 5 h4 l-3 5), through a break in the outline
+        cx, k, t = bw / 2, bh / 12, 1.4
+        rect(cx - bw * 0.22, 0, cx + bw * 0.22, bh, 0, 0)
+        pts = [(cx + (x - 10) * k, bh / 2 + (y - 12) * k) for x, y in ((11, 7), (8, 12), (12, 12), (9, 17))]
+        d.line([(x * SS, y * SS) for x, y in pts], fill=255, width=round(t * SS), joint="curve")
+        for x, y in (pts[0], pts[-1]): d.ellipse([(x - t / 2) * SS, (y - t / 2) * SS, (x + t / 2) * SS, (y + t / 2) * SS], fill=255)
+    return im.resize((w, h), Image.LANCZOS)
+
+def icon_fix(g, px):
+    code, w, h, adv, dY, dX, bm = g
+    if code not in BARS or px not in BATTERY: return g
+    im = battery(px, BARS[code], code == ICONS["battery-charging"])
+    nw, nh = im.size   # keep the old glyph's centre
+    return (code, nw, nh, adv, round(dY - h / 2 + nh / 2), round(dX + w / 2 - nw / 2), im.tobytes())
+
 def build(file, px, weight, opsz, chars=CHARS):
     font = ImageFont.truetype(os.path.join(FONTS, file), px, layout_engine=ImageFont.Layout.BASIC)   # hinted advances, matching the hinted bitmaps
     try: axes = font.get_variation_axes()
@@ -63,6 +92,7 @@ def build(file, px, weight, opsz, chars=CHARS):
         x0, y0, x1, y1 = box
         bm = img.crop(box).tobytes()
         glyphs.append((ord(ch), x1 - x0, y1 - y0, adv, int(pad * 1.5) - y0, x0 - pad, bm))
+    if file == "Lucide.ttf": glyphs = [icon_fix(g, px) for g in glyphs]
     glyphs.sort(key=lambda g: g[0])   # the VLW loader finds codepoints by binary search
     by = {g[0]: g for g in glyphs}
     if ord("d") in by: ascent = by[ord("d")][4]; descent = by[ord("p")][2] - by[ord("p")][4]
