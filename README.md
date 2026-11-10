@@ -14,7 +14,7 @@ A small phone-style OS for the LCDWiki **ES3C28P** board: ESP32-S3, 2.8" 320x240
 - **Weather**: current conditions and a 5-day forecast from Open-Meteo, for a saved place or your IP location.
 - **Spotify**: a Spotify Connect remote. Now playing with album art, play/pause, skip and volume for whatever device is playing.
 - **Book**: a text reader with a library of covers, chapters, three text sizes, three line spacings and saved progress. Justified text with best-fit line breaks, hyphenation, italics and bold, in Literata. Books come from the microSD card.
-- **Settings**: Wi-Fi, weather location, brightness, display sleep (backlight off after 1 to 30 idle minutes, any touch wakes it), °C/°F, light/dark theme, accent colour (six choices, used by every button, selection and marker), 180° rotation, storage and About.
+- **Settings**: Wi-Fi, weather location, brightness, display sleep (backlight off after 1 to 30 idle minutes, any touch wakes it), light and deep sleep for battery use, °C/°F, light/dark theme, accent colour (six choices, used by every button, selection and marker), 180° rotation, battery, storage and About.
 
 Gestures: swipe in from the left edge to go back, swipe sideways on Home to page through apps, and pull down from the top edge on any screen for the brightness slider.
 
@@ -42,6 +42,20 @@ pio run -t upload
 ```
 
 On first boot, open **Settings > Wi-Fi** and join a network with the on-screen keyboard. The clock syncs over NTP and the timezone comes from the weather lookup.
+
+## Power
+
+Three idle timeouts in Settings, each tapped to cycle its value:
+
+| Setting | Turns off | Wake | Roughly |
+| --- | --- | --- | --- |
+| Display sleep | backlight | any touch, instant | 70 mA |
+| Light sleep | panel, Wi-Fi, CPU halted | any touch, Wi-Fi rejoins in a second or two | 5 to 10 mA |
+| Deep sleep | everything but the wake circuit | any touch, reboots to Home | under 1 mA |
+
+The touch that wakes the screen does nothing else. Light and deep sleep only start when no computer is attached over USB, so the board stays reachable for flashing; a wall charger does not count. Book progress is saved before deep sleep. The currents are estimates, not measurements.
+
+Settings > Battery shows the charge level, cell voltage, the voltage trend and the change since power-on. The charger has no status line to the chip, so the level is read from voltage and reads high while charging.
 
 ## Spotify
 
@@ -74,8 +88,11 @@ The board listens on USB serial at 115200. `python drive.py 3 'k hello' shot:out
 | `S` | screen dump |
 | `b` | back |
 | `1`-`5` | open an app |
-| `p` | status: time, Wi-Fi, weather, display sleep, Spotify worker |
+| `p` | status: time, Wi-Fi, weather, sleep settings, last reset reason, Spotify worker |
 | `z` | display sleep now |
+| `P` | the last crash since power-on: reason and backtrace |
+| `y [s]` | light sleep now; with seconds it also wakes on a timer |
+| `Y [s]` | deep sleep now; with seconds it also wakes on a timer |
 | `t x y` | tap |
 | `d x0 y0 x1 y1 [ms]` | drag |
 | `k text` | type into the open keyboard field |

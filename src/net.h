@@ -9,7 +9,7 @@
 
 Preferences prefs;
 SemaphoreHandle_t netMutex = xSemaphoreCreateMutex();   // one TLS session at a time (heap + reliability)
-struct Settings { String ssid, pass; int bright = 220; bool fahrenheit = false, dark = true, flip = false; int sleepMin = 0 /* 0 = never */, accent = 0; long tzOff = 0; String notes, place = "Kalamassery, Kerala"; } cfg;
+struct Settings { String ssid, pass; int bright = 220; bool fahrenheit = false, dark = true, flip = false; int sleepMin = 0 /* 0 = never */, lightMin = 0, deepMin = 0 /* battery sleep, minutes idle */, accent = 0; long tzOff = 0; String notes, place = "Kalamassery, Kerala"; } cfg;
 
 // Settings live in NVS namespace "perch". Boards flashed before the rename kept them under "robo":
 // copy the known keys across once, then drop the old namespace.
@@ -33,14 +33,14 @@ void cfgLoad() {
   cfgMigrate();
   prefs.begin("perch", true);
   cfg.ssid = prefs.getString("ssid", ""); cfg.pass = prefs.getString("pass", "");
-  cfg.bright = prefs.getInt("bright", 220); cfg.fahrenheit = prefs.getBool("fahr", false); cfg.dark = prefs.getBool("dark", true); cfg.flip = prefs.getBool("flip", false); cfg.sleepMin = prefs.getInt("sleep", 0); cfg.accent = prefs.getInt("accent", 0);
+  cfg.bright = prefs.getInt("bright", 220); cfg.fahrenheit = prefs.getBool("fahr", false); cfg.dark = prefs.getBool("dark", true); cfg.flip = prefs.getBool("flip", false); cfg.sleepMin = prefs.getInt("sleep", 0); cfg.lightMin = prefs.getInt("lsleep", 0); cfg.deepMin = prefs.getInt("dsleep", 0); cfg.accent = prefs.getInt("accent", 0);
   cfg.tzOff = prefs.getLong("tzoff", 0); cfg.notes = prefs.getString("notes", ""); cfg.place = prefs.getString("place", "Kalamassery, Kerala");
   prefs.end();
 }
 void cfgSave() {
   prefs.begin("perch", false);
   prefs.putString("ssid", cfg.ssid); prefs.putString("pass", cfg.pass); prefs.putInt("bright", cfg.bright);
-  prefs.putBool("fahr", cfg.fahrenheit); prefs.putBool("dark", cfg.dark); prefs.putBool("flip", cfg.flip); prefs.putInt("sleep", cfg.sleepMin); prefs.putInt("accent", cfg.accent); prefs.putLong("tzoff", cfg.tzOff); prefs.putString("notes", cfg.notes); prefs.putString("place", cfg.place);
+  prefs.putBool("fahr", cfg.fahrenheit); prefs.putBool("dark", cfg.dark); prefs.putBool("flip", cfg.flip); prefs.putInt("sleep", cfg.sleepMin); prefs.putInt("lsleep", cfg.lightMin); prefs.putInt("dsleep", cfg.deepMin); prefs.putInt("accent", cfg.accent); prefs.putLong("tzoff", cfg.tzOff); prefs.putString("notes", cfg.notes); prefs.putString("place", cfg.place);
   prefs.end();
 }
 
@@ -118,7 +118,18 @@ void netManage() {
 }
 
 // ---- clock ----
-void applyTz() { configTime(cfg.tzOff, 0, "pool.ntp.org", "time.google.com"); }
+// SNTP gets its servers as IP addresses, resolved here first. Given names, lwIP's SNTP keeps a DNS query pending, and the
+// core's hostByName() (every HTTP connect) clears the DNS cache without the TCPIP lock, which runs SNTP's callback on the
+// wrong thread and asserts ("Required to lock TCPIP core"): the board rebooted when weather and clock sync started together.
+String ntpIp[2];
+void applyTz(bool resolve = false) {
+  static const char *names[2] = {"pool.ntp.org", "time.google.com"};
+  if (resolve && netConnected()) for (int i = 0; i < 2; i++) { IPAddress ip; if (WiFi.hostByName(names[i], ip)) ntpIp[i] = ip.toString(); }
+  const char *a = ntpIp[0].length() ? ntpIp[0].c_str() : ntpIp[1].length() ? ntpIp[1].c_str() : nullptr;
+  if (a) { configTime(cfg.tzOff, 0, a, ntpIp[1].length() && a != ntpIp[1].c_str() ? ntpIp[1].c_str() : nullptr); return; }
+  long o = -cfg.tzOff; char tz[32]; snprintf(tz, sizeof tz, "UTC%ld:%02ld:%02ld", o / 3600, labs(o % 3600) / 60, labs(o % 60));   // offline: zone only, no SNTP yet
+  setenv("TZ", tz, 1); tzset();
+}
 bool clockValid() { time_t t = time(nullptr); return t > 1700000000; }
 // 12-hour clock: "3:07" and "PM"
 String clock12(String *ampm = nullptr) {
@@ -227,7 +238,7 @@ void wxRequest() {
 void netLoop() {
   netManage();
   bool c = netConnected();
-  if (c && !wasConnected) { Serial.printf("wifi: connected, ip %s\n", WiFi.localIP().toString().c_str()); applyTz(); wxRequest(); }
+  if (c && !wasConnected) { Serial.printf("wifi: connected, ip %s\n", WiFi.localIP().toString().c_str()); applyTz(true); wxRequest(); }
   if (!c && wasConnected) { Serial.println("wifi: dropped"); netNextTry = 0; }
   wasConnected = c;
   if (c && wx.ok && millis() - wx.fetchedAt > 15 * 60 * 1000UL) wxRequest();

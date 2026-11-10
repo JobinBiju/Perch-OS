@@ -75,6 +75,9 @@ void portalBegin() {
   });
   portal.onNotFound([]() { portal.send(404, "text/plain", "not found"); });
 }
+// Before Wi-Fi is switched off: WiFi.mode(WIFI_OFF) destroys the interface the mDNS responder points at, and stopping or
+// restarting it afterwards read through the dead interface and crashed. portalLoop starts it again on reconnect.
+void portalNetDown() { if (mdnsUp) { MDNS.end(); mdnsUp = false; } }
 void portalLoop() {
   bool c = netConnected();
   if (c && !portalUp) { portal.begin(); portalUp = true; Serial.printf("portal: http://%s\n", WiFi.localIP().toString().c_str()); }

@@ -200,16 +200,17 @@ struct StorageScreen : Screen {
   uint32_t last = 0;
   const char *name() override { return "Storage"; }
   void enter() override { storageRetrySD(); dirty = true; }
-  // volume card 296x76 r12, 12 px padding: glyph + title + status pill, 6 px bar, usage line
+  // volume card 296x76 r12, 12 px padding: glyph + title, 6 px bar, usage line
   void drawCard(int y, const char *title, bool present, bool active, uint64_t total, uint64_t used, const char *note) {
     card(MARGIN, y, ROW_W, 76, C.CARD, 12);
     int x = MARGIN + 12, r = W - MARGIN - 12;
     icon(x + 8, y + 22, IC_HARD_DRIVE, IC16, C.TEXT);
     text(x + 24, y + 22, title, C.TEXT, F16B, textdatum_t::middle_left);
-    const char *st = !present ? "not found" : active ? "books here" : "idle";
-    frame.setFont(F12M); int pw = frame.textWidth(st) + 16;
-    frame.fillSmoothRoundRect(r - pw, y + 12, pw, 20, 10, active ? C.GREENBG : C.CARD2);
-    text(r - pw / 2, y + 22, st, active ? C.GREEN : C.DIM, F12M, textdatum_t::middle_center);
+    if (!present) {   // the only state worth a pill; the active volume is the one with the coloured bar
+      frame.setFont(F12M); int pw = frame.textWidth("not found") + 16;
+      frame.fillSmoothRoundRect(r - pw, y + 12, pw, 20, 10, C.CARD2);
+      text(r - pw / 2, y + 22, "not found", C.DIM, F12M, textdatum_t::middle_center);
+    }
     frame.fillSmoothRoundRect(x, y + 42, r - x, 6, 3, C.LINE);
     if (present && total) frame.fillSmoothRoundRect(x, y + 42, max(8, (int)(used * (r - x) / total)), 6, 3, active ? C.ACCENT : C.DIM);
     text(x, y + 65, present ? (bytesText(used) + " used of " + bytesText(total)).c_str() : note, C.DIM, F12, textdatum_t::middle_left);
@@ -224,14 +225,60 @@ struct StorageScreen : Screen {
   void tick() override { if (millis() - last > 3000) { last = millis(); storageRetrySD(); dirty = true; } }   // picks up a card inserted while open
 } storageScreen;
 
+// ---------- battery ----------
+// The TP4054 charger has no status line, so the level is read from the cell voltage (it reads high while charging)
+// and "charging" is inferred from a USB host or a rising voltage.
+struct BatteryScreen : Screen {
+  uint32_t last = 0;
+  const char *name() override { return "Battery"; }
+  static const char *state() { return !bat.present ? "No battery" : bat.full ? "Full" : bat.charging ? "Charging" : "On battery"; }
+  void kv(int cy, const char *k, String v) {
+    text(MARGIN + 12, cy, k, C.DIM, F12, textdatum_t::middle_left);
+    text(W - MARGIN - 12, cy, v.c_str(), C.TEXT, F12M, textdatum_t::middle_right);
+  }
+  void render() override {
+    frame.fillScreen(C.BG); drawStatusBar(); drawTitle("Battery");
+    // level card 296x68 r12: percent, state pill, 6 px bar
+    int y = CONTENT_Y, x = MARGIN + 12, r = W - MARGIN - 12; bool up = bat.charging || bat.full;
+    card(MARGIN, y, ROW_W, 68, C.CARD, 12);
+    text(x, y + 26, bat.present ? (String(bat.pct) + "%").c_str() : "-", C.TEXT, F24B, textdatum_t::middle_left);
+    frame.setFont(F12M); int pw = frame.textWidth(state()) + 16;
+    frame.fillSmoothRoundRect(r - pw, y + 16, pw, 20, 10, up ? C.GREENBG : C.CARD2);
+    text(r - pw / 2, y + 26, state(), up ? C.GREEN : C.DIM, F12M, textdatum_t::middle_center);
+    frame.fillSmoothRoundRect(x, y + 50, r - x, 6, 3, C.LINE);
+    if (bat.present) frame.fillSmoothRoundRect(x, y + 50, max(8, bat.pct * (r - x) / 100), 6, 3, up ? C.GREEN : bat.pct <= 20 ? C.RED : C.ACCENT);
+    // details card: 4 rows of 20 px with hairlines
+    y += 76; card(MARGIN, y, ROW_W, 92, C.CARD, 12);
+    for (int i = 0; i < 4; i++) {
+      int cy = y + 16 + i * 20; if (i < 3) frame.drawFastHLine(MARGIN + 12, cy + 9, ROW_W - 24, C.CARD2);
+      switch (i) {
+        case 0: kv(cy, "Voltage", String(bat.mv / 1000.0f, 2) + " V"); break;
+        case 1: { int m = bat.nh - 1; kv(cy, "Trend", m < 1 ? String("measuring...") : String(bat.trend > 0 ? "+" : "") + String(bat.trend) + " mV in " + String(m) + " min"); break; }
+        case 2: { uint32_t mn = bat.t0 ? (millis() - bat.t0) / 60000 : 0; char t[16]; snprintf(t, sizeof t, "%lu:%02lu", (unsigned long)(mn / 60), (unsigned long)(mn % 60));
+          kv(cy, "Since power-on", bat.t0 ? String(bat.pct0) + "% to " + String(bat.pct) + "% in " + t : String("-")); break; }
+        case 3: kv(cy, "Power", bat.host ? "USB, computer" : bat.charging || bat.full ? "USB, charger" : "Battery"); break;
+      }
+    }
+    text(W / 2, 231, "Level is read from voltage: high while charging", C.DIM, F12, textdatum_t::middle_center);
+  }
+  void tick() override { if (millis() - last > 2000) { last = millis(); dirty = true; } }
+} batteryScreen;
+
 // ---------- main settings list (scrollable) ----------
 struct SettingsScreen : Screen {
-  static constexpr int Y0 = CONTENT_Y, NROWS = 10;
+  static constexpr int Y0 = CONTENT_Y, NROWS = 13;
   static constexpr int SW_X0 = W - MARGIN - 10 - 5 * 22, SW_P = 22;   // six accent swatches, 22 px apart, the last 10 px from the card edge
   static constexpr int SL_X = W - MARGIN - 12 - 120, SL_W = 120;   // brightness slider, 12 px from the card's right edge
   static constexpr int TG_X = W - MARGIN - 8 - 92, TG_W = 92, TG_H = 44;   // 92x24 toggle, two 44 px halves, 8 px from the card's right edge
-  enum { R_WIFI, R_LOC, R_BRIGHT, R_SLEEP, R_UNITS, R_THEME, R_ACCENT, R_FLIP, R_STORAGE, R_ABOUT };
+  enum { R_WIFI, R_LOC, R_BRIGHT, R_SLEEP, R_LIGHT, R_DEEP, R_UNITS, R_THEME, R_ACCENT, R_FLIP, R_BATTERY, R_STORAGE, R_ABOUT };
   static constexpr int SLEEP_STEPS[] = {0, 1, 2, 5, 10, 30};   // minutes; 0 = never
+  static constexpr int LIGHT_STEPS[] = {0, 2, 5, 10, 30}, DEEP_STEPS[] = {0, 10, 30, 60, 120};   // battery sleep, minutes idle; 0 = never
+  static int nextStep(const int *st, int n, int cur, int floor = 0) {   // the step after cur, skipping non-zero ones below floor
+    int i = 0; while (i < n && st[i] != cur) i++;
+    for (int k = 1; k <= n; k++) { int v = st[(i + k) % n]; if (!v || v >= floor) return v; }
+    return 0;
+  }
+  static String mins(int m) { return !m ? String("Never") : m >= 60 ? String(m / 60) + " h" : String(m) + " min"; }
   bool dragBright = false; int scroll = 0; uint32_t last = 0;
   const char *name() override { return "Settings"; }
   void enter() override { scroll = 0; }
@@ -269,6 +316,14 @@ struct SettingsScreen : Screen {
           tile(y, C.INDIGO); icon(gx, gy, IC_TIMER, IC14, C.WHITE);
           text(56, cy, "Display sleep", C.TEXT, F16, textdatum_t::middle_left);
           value(cy, cfg.sleepMin ? String(cfg.sleepMin) + " min" : "Never"); chevron(CHEV_X, cy, C.DIM); break;
+        case R_LIGHT:
+          tile(y, C.INDIGO); icon(gx, gy, IC_MOON_STAR, IC14, C.WHITE);
+          text(56, cy, "Light sleep", C.TEXT, F16, textdatum_t::middle_left);
+          value(cy, mins(cfg.lightMin)); chevron(CHEV_X, cy, C.DIM); break;
+        case R_DEEP:
+          tile(y, C.RED); icon(gx, gy, IC_POWER, IC14, C.WHITE);
+          text(56, cy, "Deep sleep", C.TEXT, F16, textdatum_t::middle_left);
+          value(cy, mins(cfg.deepMin)); chevron(CHEV_X, cy, C.DIM); break;
         case R_UNITS:
           tile(y, C.GREEN); glyphThermo(gx, gy, C.WHITE, C.GREEN);
           text(56, cy, "Temperature", C.TEXT, F16, textdatum_t::middle_left);
@@ -288,6 +343,10 @@ struct SettingsScreen : Screen {
           tile(y, C.SKY); glyphRotate(gx, gy, C.WHITE);
           text(56, cy, "Rotation", C.TEXT, F16, textdatum_t::middle_left);
           toggle(y, cfg.flip, "0\xC2\xB0", "180\xC2\xB0"); break;
+        case R_BATTERY:
+          tile(y, C.GREEN); icon(gx, gy, bat.charging ? IC_BATTERY_CHARGING : IC_BATTERY_FULL, IC14, C.WHITE);
+          text(56, cy, "Battery", C.TEXT, F16, textdatum_t::middle_left);
+          value(cy, bat.present ? String(bat.pct) + "%" + (bat.charging ? " \xC2\xB7 charging" : bat.full ? " \xC2\xB7 full" : "") : String("none")); chevron(CHEV_X, cy, C.DIM); break;
         case R_STORAGE:
           tile(y, C.GREEN); glyphDrive(gx, gy, C.WHITE, C.GREEN);
           text(56, cy, "Storage", C.TEXT, F16, textdatum_t::middle_left);
@@ -314,10 +373,15 @@ struct SettingsScreen : Screen {
       case R_LOC: pushScreen(&locationScreen); break;
       case R_SLEEP: { int n = sizeof SLEEP_STEPS / sizeof *SLEEP_STEPS, i = 0; while (i < n && SLEEP_STEPS[i] != cfg.sleepMin) i++;   // tap cycles the timeout
         cfg.sleepMin = SLEEP_STEPS[(i + 1) % n]; cfgSave(); dirty = true; break; }
+      case R_LIGHT: cfg.lightMin = nextStep(LIGHT_STEPS, 5, cfg.lightMin);
+        if (cfg.deepMin && cfg.deepMin < cfg.lightMin) cfg.deepMin = nextStep(DEEP_STEPS, 5, 0, cfg.lightMin);   // deep sleep never comes before light sleep
+        cfgSave(); dirty = true; break;
+      case R_DEEP: cfg.deepMin = nextStep(DEEP_STEPS, 5, cfg.deepMin, cfg.lightMin); cfgSave(); dirty = true; break;
       case R_UNITS: cfg.fahrenheit = !cfg.fahrenheit; cfgSave(); dirty = true; break;
       case R_THEME: cfg.dark = !cfg.dark; applyTheme(cfg.dark); cfgSave(); dirty = true; break;
       case R_ACCENT: if (x >= SW_X0 - 11) { cfg.accent = constrain((x - SW_X0 + 11) / SW_P, 0, NACCENTS - 1); applyAccent(cfg.accent); cfgSave(); dirty = true; } break;
       case R_FLIP: cfg.flip = !cfg.flip; applyRotation(cfg.flip); cfgSave(); dirty = true; break;
+      case R_BATTERY: pushScreen(&batteryScreen); break;
       case R_STORAGE: pushScreen(&storageScreen); break;
       case R_ABOUT: pushScreen(&aboutScreen); break;
     }

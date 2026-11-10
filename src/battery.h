@@ -5,7 +5,10 @@
 #include "soc/usb_serial_jtag_reg.h"
 
 static constexpr int BAT_PIN = 9;
-struct Battery { int mv = 0; int pct = 0; bool present = false, full = false, usb = false; uint32_t lastSample = 0, lastFrame = 0; } bat;
+struct Battery { int mv = 0; int pct = 0; bool present = false, full = false, usb = false, host = true, charging = false; uint32_t lastSample = 0, lastFrame = 0;
+  int hist[6] = {0}, nh = 0, trend = 0; uint32_t lastHist = 0;   // one reading a minute: trend = mV gained over the last (nh - 1) minutes
+  int mv0 = 0, pct0 = 0, samples = 0; uint32_t t0 = 0;           // first settled reading after power-on, for "since power-on"
+} bat;
 
 void batSample() {
   static bool init = false;
@@ -23,7 +26,16 @@ void batSample() {
   bat.pct = p; bat.lastSample = millis();
   // USB host present: the USB-Serial-JTAG frame counter advances only while a host sends SOF packets
   uint32_t fr = REG_READ(USB_SERIAL_JTAG_FRAM_NUM_REG) & 0x7FF;
+  static int still = 0; still = fr != bat.lastFrame ? 0 : still + 1;
+  bat.host = still < 2;                                    // a computer is attached (two samples in a row without SOFs = none); gates battery sleep
   bat.usb = (fr != bat.lastFrame) || bat.full; bat.lastFrame = fr;
+  if (++bat.samples == 4) { bat.mv0 = bat.mv; bat.pct0 = bat.pct; bat.t0 = millis(); }   // the smoothing has settled by the fourth sample
+  if (bat.samples >= 4 && (!bat.nh || millis() - bat.lastHist > 60000)) {
+    if (bat.nh == 6) { for (int i = 1; i < 6; i++) bat.hist[i - 1] = bat.hist[i]; bat.nh = 5; }
+    bat.hist[bat.nh++] = bat.mv; bat.lastHist = millis(); bat.trend = bat.hist[bat.nh - 1] - bat.hist[0];
+  }
+  // no charger status line: a computer on USB always charges the cell; on a wall adapter a rising voltage gives it away
+  bat.charging = bat.present && !bat.full && (bat.host || bat.trend > 5);
 }
 int batPercent() { return bat.pct; } bool batUsb() { return bat.usb; } bool batPresent() { return bat.present; }
 void batLoop() { if (millis() - bat.lastSample > 5000 || !bat.lastSample) batSample(); }

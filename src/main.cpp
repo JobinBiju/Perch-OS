@@ -1,6 +1,7 @@
 // Perch: a tiny phone-style launcher for the ES3C28P ESP32-S3 2.8" touch display.
 // Home (clock + app icons) -> Robo face / Weather / Spotify / Book / Settings. Swipe from the left edge to go back;
-// pull down from the status bar to adjust the brightness. Settings > Display sleep turns the backlight off after idle.
+// pull down from the status bar to adjust the brightness. Settings > Display sleep turns the backlight off after idle;
+// Light sleep and Deep sleep (battery only) halt the chip until the screen is touched.
 #include <Arduino.h>
 #include "ui.h"
 #include "net.h"
@@ -9,6 +10,9 @@
 #include "home.h"
 #include "spotify.h"
 #include "portal.h"
+#include "driver/gpio.h"
+#include "driver/rtc_io.h"
+#include "esp_sleep.h"
 
 // ---- navigation with transitions ----
 static inline float easeOut(float t) { return 1 - (1 - t) * (1 - t) * (1 - t); }
@@ -87,7 +91,73 @@ void pullUpdate(int x) {
 uint32_t lastActivity = 0; bool asleep = false, wakeTouch = false;
 void displaySleep() { if (asleep) return; asleep = true; lcd.setBrightness(0); Serial.println("display: sleep"); }
 void displayWake() { lastActivity = millis(); if (!asleep) return; asleep = false; lcd.setBrightness(cfg.bright); Serial.println("display: wake"); }
-void sleepLoop() { if (cfg.sleepMin && !asleep && !touching && millis() - lastActivity > (uint32_t)cfg.sleepMin * 60000UL) displaySleep(); }
+
+// Battery sleep. Both wake on the touch controller's INT line (GPIO 17, an RTC pin, low while a finger is down).
+// Light sleep: panel asleep, Wi-Fi off, CPU halted; RAM and the open screen survive, Wi-Fi reconnects on wake.
+// Deep sleep: everything off but the RTC; a touch reboots the board. `secs` > 0 also wakes on a timer (serial tests).
+// A computer on USB drops the board while it sleeps and does not look again by itself. Only reachable through the serial
+// `y` command (automatic sleep is off while a computer is attached): a few seconds after such a wake, if no host is
+// sending frames, detach and re-attach the USB pull-up so the serial port comes back.
+uint32_t usbCheckAt = 0;
+void usbReattachLoop() {
+  if (!usbCheckAt || (int32_t)(millis() - usbCheckAt) < 0) return;
+  usbCheckAt = 0;
+  uint32_t f0 = REG_READ(USB_SERIAL_JTAG_FRAM_NUM_REG) & 0x7FF; delay(20);
+  if ((REG_READ(USB_SERIAL_JTAG_FRAM_NUM_REG) & 0x7FF) != f0) return;   // the host is still talking to us
+  CLEAR_PERI_REG_MASK(USB_SERIAL_JTAG_CONF0_REG, USB_SERIAL_JTAG_DP_PULLUP); delay(100);
+  SET_PERI_REG_MASK(USB_SERIAL_JTAG_CONF0_REG, USB_SERIAL_JTAG_DP_PULLUP);
+}
+int lastSleepS = -1, lastSleepCause = 0;   // last light sleep: seconds slept and what ended it (esp_sleep_wakeup_cause_t), for the `p` line
+static constexpr gpio_num_t WAKE_PIN = GPIO_NUM_17, BL_PIN = GPIO_NUM_45, TP_RST_PIN = GPIO_NUM_18;
+void deepSleep(int secs = 0) {
+  Serial.printf("power: deep sleep%s\n", secs ? " (timed)" : ""); Serial.flush();
+  bookSave();
+  lcd.setBrightness(0); lcd.sleep(); portalNetDown(); WiFi.disconnect(true); WiFi.mode(WIFI_OFF);
+  gpio_hold_en(BL_PIN); gpio_hold_en(TP_RST_PIN); gpio_deep_sleep_hold_en();   // backlight stays off, the touch chip stays out of reset (released in setup)
+  rtc_gpio_pullup_en(WAKE_PIN); rtc_gpio_pulldown_dis(WAKE_PIN);
+  esp_sleep_enable_ext0_wakeup(WAKE_PIN, 0);
+  if (secs) esp_sleep_enable_timer_wakeup(secs * 1000000ULL);
+  esp_deep_sleep_start();
+}
+void lightSleep(int secs = 0) {
+  Serial.printf("power: light sleep%s\n", secs ? " (timed)" : "");
+  xSemaphoreTake(netMutex, portMAX_DELAY);   // let a request in flight finish; the Spotify and weather workers park on this
+  lcd.setBrightness(0); lcd.sleep(); asleep = true;
+  portalNetDown(); WiFi.disconnect(true); WiFi.mode(WIFI_OFF);
+  Serial.flush(); delay(50);
+  static bool hadHost = false; hadHost |= bat.host;   // sticky: right after a re-attach the host flag can read false for a few seconds
+  disableCore0WDT();                          // a sleep longer than the 5 s task watchdog would reboot the board on wake
+  uint32_t t0 = millis(); bool deep = false;   // millis() keeps counting through light sleep
+  gpio_wakeup_enable(WAKE_PIN, GPIO_INTR_LOW_LEVEL); esp_sleep_enable_gpio_wakeup();
+  for (;;) {
+    uint32_t left = secs ? (uint32_t)secs * 1000UL - min((uint32_t)secs * 1000UL, (uint32_t)(millis() - t0)) : 30000;
+    if (secs && left < 200) break;                                           // timed test: done
+    esp_sleep_enable_timer_wakeup(min(left, (uint32_t)30000) * 1000ULL);     // surface every 30 s to check the deep-sleep deadline
+    esp_light_sleep_start();
+    lastSleepCause = (int)esp_sleep_get_wakeup_cause();
+    if (lastSleepCause == ESP_SLEEP_WAKEUP_GPIO) break;
+    if (secs) continue;
+    if (cfg.deepMin && millis() - lastActivity > (uint32_t)cfg.deepMin * 60000UL) { deep = true; break; }
+  }
+  gpio_wakeup_disable(WAKE_PIN); esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+  enableCore0WDT();
+  if (hadHost) usbCheckAt = millis() + 3000;
+  if (deep) { xSemaphoreGive(netMutex); deepSleep(); }
+  WiFi.mode(WIFI_STA); WiFi.setSleep(true); netState = NS_IDLE; netNextTry = 0; netConnect();
+  xSemaphoreGive(netMutex);
+  lcd.wakeup(); delay(120);                   // the panel needs 120 ms after sleep-out
+  Screen *s = current(); s->render(); flushAll(); s->dirty = false;
+  lcd.setBrightness(cfg.bright); asleep = false; lastActivity = millis(); wakeTouch = true;   // the touch that woke it does nothing else
+  lastSleepS = (millis() - t0) / 1000; Serial.printf("power: awake after %d s (cause %d)\n", lastSleepS, lastSleepCause);
+}
+void sleepLoop() {
+  if (touching) return;
+  uint32_t idle = millis() - lastActivity;
+  if (cfg.sleepMin && !asleep && idle > (uint32_t)cfg.sleepMin * 60000UL) displaySleep();
+  if (bat.host) return;                       // plugged into a computer: stay reachable for serial and flashing
+  if (cfg.deepMin && idle > (uint32_t)cfg.deepMin * 60000UL) deepSleep();
+  else if (cfg.lightMin && idle > (uint32_t)cfg.lightMin * 60000UL) lightSleep();
+}
 
 void handleTouch() {
   int x, y; bool t = readTouch(x, y);
@@ -133,6 +203,21 @@ void handleTouch() {
   }
 }
 
+// ---- last crash, kept in RTC memory across the reset so it can be read after the reboot (serial `P`) ----
+struct PanicRec { uint32_t magic; char reason[48]; uint32_t pc; int core, n; uint32_t bt[32]; };
+RTC_NOINIT_ATTR PanicRec panicRec;
+void panicHook(arduino_panic_info_t *info, void *) {
+  panicRec.magic = 0xC0FFEE01; strlcpy(panicRec.reason, info->reason ? info->reason : "?", sizeof panicRec.reason);
+  panicRec.pc = (uint32_t)info->pc; panicRec.core = info->core; panicRec.n = min((int)info->backtrace_len, 32);
+  for (int i = 0; i < panicRec.n; i++) panicRec.bt[i] = info->backtrace[i];
+}
+void panicPrint() {
+  if (panicRec.magic != 0xC0FFEE01) { Serial.println("panic: none recorded"); return; }
+  Serial.printf("panic: %s core %d pc 0x%08lx bt", panicRec.reason, panicRec.core, (unsigned long)panicRec.pc);
+  for (int i = 0; i < panicRec.n; i++) Serial.printf(" 0x%08lx", (unsigned long)panicRec.bt[i]);
+  Serial.println();
+}
+
 // ---- serial debug ----
 void screenDump() {
   static uint16_t *buf = (uint16_t *)ps_malloc(W * H * 2); if (!buf) return;
@@ -143,17 +228,18 @@ void handleSerial() {
   static char line[200]; static int n = 0;
   while (Serial.available()) {
     char c = Serial.read();
-    if (n == 0 && strchr("Sb12345pWTriz", c)) {
+    if (n == 0 && strchr("Sb12345pWTrizP", c)) {
       displayWake();
       if (c == 'S') screenDump();
       else if (c == 'z') displaySleep();   // display sleep now
+      else if (c == 'P') panicPrint();     // the last crash since power-on, if any
       else if (c == 'b') popScreen();
       else if (c >= '1' && c <= '5') { if (navDepth == 1) { if (apps[c - '1'].launch) apps[c - '1'].launch(); else pushScreen(apps[c - '1'].screen); } }
       else if (c == 'W') { wx.ok = true; wx.city = "Kalamassery"; wx.temp = 29; wx.code = 2; wx.hum = 74; wx.wind = 12; wx.nDays = 5; for (int i = 0; i < 5; i++) wx.days[i] = {i % 3 == 0 ? 61 : 2, 31.f, 24.f, (1 + i) % 7}; wx.fetchedAt = millis(); current()->dirty = true; }  // fake weather for layout tests
       else if (c == 'T') { applyTheme(!themeDark); current()->dirty = true; }   // preview the other theme (not saved)
       else if (c == 'p') { time_t t = time(nullptr); struct tm tm; localtime_r(&t, &tm); char tb[32]; strftime(tb, sizeof tb, "%Y-%m-%d %H:%M:%S", &tm);
         Serial.printf("time %s tz %ld bright %d wifi %d ssid %s wx ok %d city %s err %s home page %d storage %s ip %s gw %s mask %s bssid %s ch %d\n", tb, cfg.tzOff, cfg.bright, WiFi.status(), WiFi.SSID().c_str(), wx.ok, wx.city.c_str(), wx.err.c_str(), homeScreen.page, storageText().c_str(), WiFi.localIP().toString().c_str(), WiFi.gatewayIP().toString().c_str(), WiFi.subnetMask().toString().c_str(), WiFi.BSSIDstr().c_str(), WiFi.channel());
-        Serial.printf("sleep %d min asleep %d idle %lu s\n", cfg.sleepMin, asleep, (unsigned long)((millis() - lastActivity) / 1000));
+        Serial.printf("sleep %d min asleep %d idle %lu s light %d min deep %d min host %d last light sleep %d s cause %d reset reason %d\n", cfg.sleepMin, asleep, (unsigned long)((millis() - lastActivity) / 1000), cfg.lightMin, cfg.deepMin, bat.host, lastSleepS, lastSleepCause, (int)esp_reset_reason());
         Serial.printf("sp linked %d busy %d pending %d want %d lastPoll %lu have %d err %s access %d wxbusy %d mutex %s\n", sp.linked, sp.busy, sp.pending, sp.wantPolling, (unsigned long)sp.lastPoll, sp.have, sp.err.c_str(), sp.access.length(), wx.busy, xSemaphoreGetMutexHolder(netMutex) ? pcTaskGetName(xSemaphoreGetMutexHolder(netMutex)) : "free"); }
       else if (c == 'i') { Serial.print("i2c:"); for (int a = 1; a < 127; a++) { Wire.beginTransmission(a); if (!Wire.endTransmission()) Serial.printf(" 0x%02x", a); } Serial.println(); }   // bus scan
       else if (c == 'r') { storageTried = 0; storageRetrySD(); Serial.printf("storage: %s\n", storageText().c_str()); }
@@ -163,6 +249,8 @@ void handleSerial() {
       line[n] = 0;
       int a, b, cc, d;
       if (sscanf(line, "t %d %d", &a, &b) == 2) { synth = {true, a, b, a, b, millis(), 80}; }
+      else if (line[0] == 'y' && (!line[1] || line[1] == ' ')) lightSleep(atoi(line + 1));   // light sleep now; "y 40" also wakes after 40 s
+      else if (line[0] == 'Y' && (!line[1] || line[1] == ' ')) deepSleep(atoi(line + 1));    // deep sleep now; "Y 15" also wakes after 15 s
       else if (line[0] == 'f' && line[1] == ' ') {   // font test: draw the text in every font
         const lgfx::IFont *fs[] = {F12, F12M, F16, F16B, RD12, RD16, RD20, F24B}; frame.fillScreen(C.BG); int y = 4;
         for (auto f : fs) { text(8, y, line + 2, C.TEXT, f); frame.setFont(f); y += frame.fontHeight() + 4; }
@@ -194,6 +282,11 @@ void setup() {
   pinMode(PIN_AMP_EN, OUTPUT); digitalWrite(PIN_AMP_EN, HIGH);
   Serial.begin(115200);
   Serial.println("\n=== Perch ===");
+  set_arduino_panic_handler(panicHook, nullptr);
+  esp_sleep_wakeup_cause_t wokeBy = esp_sleep_get_wakeup_cause();   // EXT0 = a touch ended deep sleep
+  gpio_hold_dis(BL_PIN); gpio_hold_dis(TP_RST_PIN); gpio_deep_sleep_hold_dis(); rtc_gpio_deinit(WAKE_PIN);
+  Serial.printf("boot: reset reason %d\n", (int)esp_reset_reason());   // 1 power-on, 3 software, 4 panic, 6 task watchdog, 8 deep sleep
+  if (wokeBy != ESP_SLEEP_WAKEUP_UNDEFINED) Serial.printf("power: woke from deep sleep (cause %d)\n", (int)wokeBy);
   cfgLoad(); spLoad();
   lcd.init(); applyAccent(cfg.accent); applyTheme(cfg.dark); applyRotation(cfg.flip); lcd.setBrightness(cfg.bright); lcd.fillScreen(C.BG);
   frame.setPsram(true); frame.setColorDepth(16);   // PSRAM: keeps ~150 KB of internal RAM free for TLS
@@ -207,6 +300,7 @@ void setup() {
   navStack[0] = &homeScreen; navDepth = 1;
   homeScreen.render(); flushAll(); homeScreen.enter();
   neopixelWrite(PIN_LED, 0, 0, 0);
+  lastActivity = millis(); wakeTouch = wokeBy == ESP_SLEEP_WAKEUP_EXT0;   // the touch that woke the board does nothing else
   Serial.printf("ready: mic %s, heap %lu, psram %lu\n", face::micOk ? "ok" : "off", (unsigned long)ESP.getFreeHeap(), (unsigned long)ESP.getFreePsram());
 }
 
@@ -214,7 +308,7 @@ void loop() {
   static uint32_t lastLog = 0; static int frames = 0;
   handleSerial();
   netLoop(); batLoop(); spLoop(); portalLoop();
-  handleTouch(); sleepLoop();
+  handleTouch(); sleepLoop(); usbReattachLoop();
   Screen *s = current();
   if (!edgeMode && !pullMode) {   // a slide or the brightness card owns the panel
     s->tick();
