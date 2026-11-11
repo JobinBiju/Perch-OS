@@ -252,7 +252,7 @@ void handleSerial() {
       if (sscanf(line, "t %d %d", &a, &b) == 2) { synth = {true, a, b, a, b, millis(), 80}; }
       else if (line[0] == 'y' && (!line[1] || line[1] == ' ')) lightSleep(atoi(line + 1));   // light sleep now; "y 40" also wakes after 40 s
       else if (line[0] == 'Y' && (!line[1] || line[1] == ' ')) deepSleep(atoi(line + 1));    // deep sleep now; "Y 15" also wakes after 15 s
-      else if (line[0] == 'm' && line[1] == ' ') face::force = atoi(line + 2);   // hold Robo expression N; -1 releases
+      else if (line[0] == 'm' && line[1] == ' ') { int v = atoi(line + 2); if (v == 98) face::ampTest(); else if (v == 99) face::spinTest(); else face::force = v; }   // hold Robo expression N; -1 releases; 98 amp test, 99 circle-drag test
       else if (line[0] == 'f' && line[1] == ' ') {   // font test: draw the text in every font
         const lgfx::IFont *fs[] = {F12, F12M, F16, F16B, RD12, RD16, RD20, F24B}; frame.fillScreen(C.BG); int y = 4;
         for (auto f : fs) { text(8, y, line + 2, C.TEXT, f); frame.setFont(f); y += frame.fontHeight() + 4; }
@@ -281,7 +281,7 @@ void handleSerial() {
 }
 
 void setup() {
-  pinMode(PIN_AMP_EN, OUTPUT); digitalWrite(PIN_AMP_EN, HIGH);
+  pinMode(PIN_AMP_EN, OUTPUT); digitalWrite(PIN_AMP_EN, HIGH);   // amplifier off (active low) until Robo speaks
   Serial.begin(115200);
   Serial.println("\n=== Perch ===");
   set_arduino_panic_handler(panicHook, nullptr);
