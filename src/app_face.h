@@ -4,6 +4,7 @@
 #include <driver/i2s.h>
 #include "ui.h"
 
+extern uint32_t lastActivity; extern bool asleep;   // main.cpp: last touch, display asleep
 namespace face {
 static constexpr int FACE_Y = 30, FACE_H = 160, CAP_Y = 196, CAP_H = 30;
 static constexpr uint8_t ES8311_ADDR = 0x18; static constexpr int SAMPLE_RATE = 16000;
@@ -11,12 +12,34 @@ static const uint16_t BG = lcd.color565(8, 12, 22), EYE_BLUE = lcd.color565(40, 
 static const uint16_t MINT = lcd.color565(190, 255, 220), TEXT_BLUE = lcd.color565(150, 200, 255);
 float dtk = 1.0f;
 
-enum Mood { IDLE, HAPPY, WINK_L, WINK_R, SURPRISED, ANGRY, STARTLED };
-Mood mood = IDLE; uint32_t moodUntil = 0; const char *caption = ""; uint32_t captionStart = 0;
+// One row per expression: eye openness (left, right), top lid drop at the inner and outer corner (0..1 of the eye),
+// eye scale, mouth curve (-1 frown .. 1 smile), mouth "o", eye shape, colour, LED. updateAnim() eases towards the row.
+enum Mood { IDLE, HAPPY, WINK_L, WINK_R, SURPRISED, ANGRY, STARTLED, SLEEPY, ASLEEP, GROGGY, SAD, LOVE, MOOD_N };
+enum Shape { S_RECT, S_ARC, S_HEART, S_SHUT };
+struct Expr { float oL, oR, lidIn, lidOut, scale, curve, o; Shape shape; uint16_t col; uint8_t r, g, b; };
+static const uint16_t PINK = lcd.color565(255, 96, 150), SAD_BLUE = lcd.color565(70, 130, 220), Z_DIM = lcd.color565(60, 90, 130);
+static const Expr EXPR[MOOD_N] = {
+  /* IDLE      */ {1, 1, 0, 0, 1, 1, 0, S_RECT, EYE_BLUE, 0, 10, 40},
+  /* HAPPY     */ {1, 1, 0, 0, 1, 1, 0, S_ARC, MINT, 0, 40, 20},
+  /* WINK_L    */ {0.08f, 1, 0, 0, 1, 1, 0, S_RECT, EYE_BLUE, 20, 0, 40},
+  /* WINK_R    */ {1, 0.08f, 0, 0, 1, 1, 0, S_RECT, EYE_BLUE, 20, 0, 40},
+  /* SURPRISED */ {1, 1, 0, 0, 1.08f, 0, 1, S_RECT, EYE_BLUE, 40, 30, 0},
+  /* ANGRY     */ {1, 1, 0.55f, 0.1f, 1, -1, 0, S_RECT, EYE_WHITE, 60, 0, 0},
+  /* STARTLED  */ {1, 1, 0, 0, 1.18f, 0, 1, S_RECT, EYE_BLUE, 40, 30, 0},
+  /* SLEEPY    */ {0.8f, 0.8f, 0.45f, 0.45f, 1, 0, 0, S_RECT, EYE_BLUE, 0, 4, 16},
+  /* ASLEEP    */ {1, 1, 0, 0, 1, 0, 0, S_SHUT, EYE_BLUE, 0, 0, 4},
+  /* GROGGY    */ {0.55f, 0.8f, 0.5f, 0.5f, 1, 0, 0, S_RECT, EYE_BLUE, 0, 4, 16},
+  /* SAD       */ {0.9f, 0.9f, 0, 0.45f, 1, -1, 0, S_RECT, SAD_BLUE, 8, 0, 30},
+  /* LOVE      */ {1, 1, 0, 0, 1, 1, 0, S_HEART, PINK, 50, 6, 20},
+};
+// `react` is a timed reaction; when it runs out the face falls back to the base mood (idle, sleepy, asleep or sad). `mood` is what is drawn.
+Mood mood = IDLE, react = IDLE, lastBase = IDLE; uint32_t reactUntil = 0; const char *caption = ""; uint32_t captionStart = 0, captionUntil = 0;
+int force = -1;   // serial `m N`: hold expression N (-1 releases)
 struct Anim { float v, t; void to(float x) { t = x; } void step(float k) { k *= dtk; if (k > 1) k = 1; v += (t - v) * k; } };
-Anim openL{1, 1}, openR{1, 1}, gazeX{0, 0}, gazeY{0, 0}, mouthCurve{1, 1}, mouthO{0, 0}, eyeScale{1, 1};
+Anim openL{1, 1}, openR{1, 1}, gazeX{0, 0}, gazeY{0, 0}, mouthCurve{1, 1}, mouthO{0, 0}, eyeScale{1, 1}, lidIn{0, 0}, lidOut{0, 0};
 uint32_t nextBlink = 0; int blinkPhase = 0; uint32_t blinkT = 0;
-bool touching = false; float dragDist = 0; uint32_t pokeTimes[8]; int pokeIdx = 0;
+uint32_t nextLook = 0; float lookX = 0, lookY = 0; uint32_t nextYawn = 0, yawnUntil = 0, nextSigh = 0, lastNoise = 0;
+bool touching = false, tickled = false; float dragDist = 0; int reversals = 0, lastDx = 0; uint32_t downAt = 0; uint32_t pokeTimes[8]; int pokeIdx = 0;
 bool micOk = false; float micAvg = 200;
 
 bool esWrite(uint8_t reg, uint8_t val) { Wire.beginTransmission(ES8311_ADDR); Wire.write(reg); Wire.write(val); return Wire.endTransmission() == 0; }
@@ -50,27 +73,27 @@ int micPeak() {
   return peak;
 }
 
-void setMood(Mood m, const char *t, uint32_t ms) { mood = m; moodUntil = millis() + ms; caption = t; captionStart = millis(); }
-void led(Mood m) {
-  switch (m) {
-    case ANGRY: neopixelWrite(PIN_LED, 60, 0, 0); break;
-    case HAPPY: neopixelWrite(PIN_LED, 0, 40, 20); break;
-    case SURPRISED: case STARTLED: neopixelWrite(PIN_LED, 40, 30, 0); break;
-    case WINK_L: case WINK_R: neopixelWrite(PIN_LED, 20, 0, 40); break;
-    default: neopixelWrite(PIN_LED, 0, 10, 40); break;
-  }
-}
+void say(const char *t, uint32_t ms) { caption = t; captionStart = millis(); captionUntil = captionStart + ms; }
+void setMood(Mood m, const char *t, uint32_t ms) { react = m; reactUntil = millis() + ms; say(t, ms); }
+int ledShown = -1;
+void led(Mood m) { if (m == ledShown) return; ledShown = m; neopixelWrite(PIN_LED, EXPR[m].r, EXPR[m].g, EXPR[m].b); }
 
-void drawEyeNormal(float cx, float cy, float w, float h, float open, uint16_t col) {
-  float hh = max(4.0f, h * open); float r = min(w, hh) * 0.35f;
-  frame.fillSmoothRoundRect((int)(cx - w / 2), (int)(cy - hh / 2), (int)w, (int)hh, (int)r, col);
+// A rounded eye; the top lid is a background wedge laid over it, so a slant reads as angry (inner corner low) or sad (outer corner low).
+void drawEye(float cx, float cy, float w, float h, float open, bool left, uint16_t col) {
+  float hh = max(4.0f, h * open); float r = min(w, hh) * 0.35f; int x0 = (int)(cx - w / 2), y0 = (int)(cy - hh / 2);
+  frame.fillSmoothRoundRect(x0, y0, (int)w, (int)hh, (int)r, col);
+  if (lidIn.v < 0.02f && lidOut.v < 0.02f) return;
+  float lo = min(0.15f, max(lidIn.v, lidOut.v)), li = max(lidIn.v, lo), lu = max(lidOut.v, lo);   // the high end still clears the rounded corner
+  int yl = y0 + (int)(hh * (left ? lu : li)), yr = y0 + (int)(hh * (left ? li : lu)), xa = x0 - 2, xb = x0 + (int)w + 2, yt = y0 - 2;
+  frame.fillTriangle(xa, yt, xb, yt, xb, yr, BG); frame.fillTriangle(xa, yt, xb, yr, xa, yl, BG);
 }
 void drawEyeHappy(float cx, float cy, float w, uint16_t col) { int r = (int)(w / 2); frame.fillArc((int)cx, (int)(cy + r * 0.35f), r, r - 7, 190, 350, col); }
-void drawEyeAngry(float cx, float cy, float w, float h, bool left, uint16_t col) {
-  int x0 = (int)(cx - w / 2), x1 = (int)(cx + w / 2), yb = (int)(cy + h / 2);
-  int yOuter = (int)(cy - h / 2 + 6), yInner = (int)(cy - h / 2 + h * 0.55f);
-  int ytl = left ? yOuter : yInner, ytr = left ? yInner : yOuter;
-  frame.fillTriangle(x0, ytl, x1, ytr, x1, yb, col); frame.fillTriangle(x0, ytl, x1, yb, x0, yb, col);
+void drawEyeShut(float cx, float cy, float w, uint16_t col) { int r = (int)(w / 2); frame.fillArc((int)cx, (int)(cy - r * 0.2f), r, r - 5, 20, 160, col); }
+void drawEyeHeart(float cx, float cy, float w, uint16_t col) {
+  float r = w * 0.27f * (1 + 0.08f * sinf(millis() / 160.0f)); int y = (int)(cy - r * 0.55f);
+  frame.fillSmoothCircle((int)(cx - r * 0.95f), y, (int)r, col); frame.fillSmoothCircle((int)(cx + r * 0.95f), y, (int)r, col);
+  frame.fillRect((int)cx - 3, y - 2, 6, (int)r, col);
+  frame.fillTriangle((int)(cx - r * 1.85f), (int)(y + r * 0.45f), (int)(cx + r * 1.85f), (int)(y + r * 0.45f), (int)cx, (int)(y + r * 2.5f), col);
 }
 void drawMouth(float cx, float cy, uint16_t col) {
   if (mouthO.v > 0.5f) { int r = (int)(6 + 6 * mouthO.v); frame.fillSmoothCircle((int)cx, (int)cy + 4, r, col); frame.fillSmoothCircle((int)cx, (int)cy + 4, r - 4, BG); return; }
@@ -84,26 +107,31 @@ void drawCaption() {
   if (caption[0]) {
     uint32_t shown = (millis() - captionStart) / 35 + 1; size_t len = strlen(caption); if (shown > len) shown = len;
     char buf[64]; strncpy(buf, caption, shown); buf[shown] = 0;
-    text(W / 2, CAP_Y + CAP_H - 8, buf, mood == ANGRY ? EYE_WHITE : TEXT_BLUE, F12, textdatum_t::bottom_center);
+    text(W / 2, CAP_Y + CAP_H - 8, buf, mood == ANGRY ? EYE_WHITE : mood == LOVE ? PINK : TEXT_BLUE, F12, textdatum_t::bottom_center);
   }
   flushRows(CAP_Y, CAP_H);
 }
 void drawFace() {
   frame.fillRect(0, FACE_Y, W, FACE_H, BG);
+  const Expr &e = EXPR[mood];
   const float eyeW = 46 * eyeScale.v, eyeH = 58 * eyeScale.v, gap = 92;
   const float cx = W / 2 + gazeX.v, cy = (H / 2 - 28) + gazeY.v;
-  uint16_t col = (mood == ANGRY) ? EYE_WHITE : (mood == HAPPY) ? MINT : EYE_BLUE;
   for (int side = -1; side <= 1; side += 2) {
-    float ex = cx + side * gap / 2; bool left = side < 0; float open = left ? openL.v : openR.v;
-    if (mood == HAPPY) drawEyeHappy(ex, cy, eyeW, col);
-    else if (mood == ANGRY) drawEyeAngry(ex, cy, eyeW, eyeH * open, left, col);
-    else drawEyeNormal(ex, cy, eyeW, eyeH, open, col);
+    float ex = cx + side * gap / 2; bool left = side < 0;
+    if (e.shape == S_ARC) drawEyeHappy(ex, cy, eyeW, e.col);
+    else if (e.shape == S_HEART) drawEyeHeart(ex, cy, eyeW, e.col);
+    else if (e.shape == S_SHUT) drawEyeShut(ex, cy, eyeW, e.col);
+    else drawEye(ex, cy, eyeW, eyeH, left ? openL.v : openR.v, left, e.col);
   }
-  drawMouth(cx, cy + eyeH / 2 + 22, col);
+  drawMouth(cx, cy + eyeH / 2 + 22, e.col);
+  if (mood == ASLEEP) for (int i = 0; i < 3; i++) {   // three z's drifting up beside the face
+    float p = fmodf(millis() / 2700.0f + i / 3.0f, 1.0f);
+    text((int)(cx + 72 + p * 24 + sinf(p * 6.28f) * 3), (int)(cy - 22 - p * 30), "z", (p < 0.15f || p > 0.8f) ? Z_DIM : TEXT_BLUE, p > 0.5f ? F16 : F12, textdatum_t::middle_center);
+  }
   flushRows(FACE_Y, FACE_H);
-  static const char *lastCap = nullptr; static size_t lastLen = 0;
+  static const char *lastCap = nullptr; static size_t lastLen = 0; static Mood lastMood = IDLE;
   size_t shown = caption[0] ? min(strlen(caption), (size_t)((millis() - captionStart) / 35 + 1)) : 0;
-  if (caption != lastCap || shown != lastLen) { drawCaption(); lastCap = caption; lastLen = shown; }
+  if (caption != lastCap || shown != lastLen || mood != lastMood) { drawCaption(); lastCap = caption; lastLen = shown; lastMood = mood; }
 }
 
 bool inEye(int x, int y, bool left) { float ex = W / 2 + (left ? -46 : 46), ey = H / 2 - 28; return fabsf(x - ex) < 40 && fabsf(y - ey) < 48; }
@@ -115,34 +143,75 @@ const char *WINK[] = {"A wink just for you.", ";) you saw that.", "Wink wink."};
 const char *ANGRYL[] = {"Hey! Easy on the pokes.", "Too many pokes. Grr.", "Personal space, please."};
 const char *STARTLE[] = {"What was that?!", "Whoa! Loud!", "Did you hear that?"};
 
+const char *WAKE[] = {"Mm... five more minutes.", "Huh? I was dreaming.", "Oh. I dozed off."};
+const char *LOVEL[] = {"Aww, that's nice.", "I like you too.", "More pets, please."};
+const char *LOWBAT[] = {"I'm running low...", "Feeling a bit drained.", "Could use a charge."};
+const char *NOWIFI[] = {"I lost the Wi-Fi...", "Where did the internet go?"};
+
 void onTapFace(int x, int y) {
-  if (mood == ANGRY) return;
+  if (mood == ANGRY || mood == GROGGY) return;
   pokeTimes[pokeIdx++ & 7] = millis();
   if (recentPokes() >= 5) { setMood(ANGRY, pick(ANGRYL, 3), 3500); return; }
   if (inEye(x, y, true)) setMood(WINK_L, pick(WINK, 3), 1800);
   else if (inEye(x, y, false)) setMood(WINK_R, pick(WINK, 3), 1800);
   else setMood(SURPRISED, pick(HELLO, 4), 2200);
 }
-void onTickle() { if (mood != ANGRY && mood != HAPPY) setMood(HAPPY, pick(TICKLE, 3), 2500); }
+void onTickle() { if (mood != ANGRY && mood != HAPPY && mood != GROGGY) setMood(HAPPY, pick(TICKLE, 3), 2500); }
+
+// What the face does when nothing is happening to it. It dozes off ahead of the display-sleep timer, so the screen goes dark on a sleeping face.
+int sadWhy() {   // 1 low battery, 2 Wi-Fi lost after having had it
+  static bool sawWifi = false; bool up = WiFi.status() == WL_CONNECTED; sawWifi |= up;
+  if (bat.present && !bat.usb && bat.pct <= 20) return 1;
+  return sawWifi && !up ? 2 : 0;
+}
+Mood baseMood() {
+  uint32_t now = millis(), idle = now - lastActivity; if (lastNoise && now - lastNoise < idle) idle = now - lastNoise;
+  uint32_t nap = cfg.sleepMin ? (uint32_t)cfg.sleepMin * 60000UL : 240000UL;
+  time_t t = time(nullptr); struct tm tm; localtime_r(&t, &tm);
+  if (tm.tm_year > 120 && (tm.tm_hour >= 23 || tm.tm_hour < 6) && nap > 120000UL) nap = 120000UL;   // late at night it tires sooner
+  if (idle > nap / 5 * 4) return ASLEEP;
+  if (idle > nap / 2) return SLEEPY;
+  return sadWhy() ? SAD : IDLE;
+}
 
 void updateAnim() {
   uint32_t now = millis();
-  if (mood != IDLE && now > moodUntil) { mood = IDLE; caption = ""; }
-  float oL = 1, oR = 1, curve = 1, o = 0, scale = 1;
-  switch (mood) {
-    case WINK_L: oL = 0.08f; break; case WINK_R: oR = 0.08f; break;
-    case SURPRISED: o = 1; scale = 1.08f; curve = 0; break;
-    case STARTLED: o = 1; scale = 1.18f; curve = 0; break;
-    case ANGRY: curve = -1; break; case HAPPY: curve = 1; break; default: break;
+  if (react != IDLE && now > reactUntil) react = IDLE;
+  if (caption[0] && now > captionUntil) caption = "";
+  Mood base = baseMood();
+  if (base != lastBase) {
+    if (lastBase == ASLEEP && react == IDLE) setMood(GROGGY, pick(WAKE, 3), 2600);
+    if (base == SLEEPY) nextYawn = now + 1500;
+    if (base == SAD) nextSigh = now + 600;
+    lastBase = base;
   }
-  if (mood == IDLE || mood == SURPRISED || mood == HAPPY) {
+  mood = force >= 0 && force < MOOD_N ? (Mood)force : react != IDLE ? react : base;
+  const Expr &e = EXPR[mood];
+  float oL = e.oL, oR = e.oR, o = e.o;
+  if (mood == SLEEPY) {
+    if (now > nextYawn) { yawnUntil = now + 1700; nextYawn = now + random(9000, 15000); say("*yawn*", 1700); }
+    if (now < yawnUntil) { o = 1.6f; oL = oR = 0.12f; }
+  }
+  if (mood == SAD && now > nextSigh) { nextSigh = now + random(18000, 26000); if (sadWhy() == 2) say(pick(NOWIFI, 2), 3500); else say(pick(LOWBAT, 3), 3500); }
+  bool slow = mood == SLEEPY || mood == GROGGY;
+  if (e.shape == S_RECT && mood != WINK_L && mood != WINK_R && mood != ANGRY && mood != STARTLED && now > yawnUntil) {
     if (blinkPhase == 0 && now > nextBlink) { blinkPhase = 1; blinkT = now; }
-    if (blinkPhase == 1) { oL = oR = 0.05f; if (now - blinkT > 90) { blinkPhase = 2; blinkT = now; } }
-    if (blinkPhase == 2) { if (now - blinkT > 110) { blinkPhase = 0; nextBlink = now + random(2500, 6000); } }
+    if (blinkPhase == 1) { oL = oR = 0.05f; if (now - blinkT > (slow ? 220u : 90u)) { blinkPhase = 2; blinkT = now; } }
+    if (blinkPhase == 2) { if (now - blinkT > (slow ? 240u : 110u)) { blinkPhase = 0; nextBlink = now + (!slow && random(100) < 20 ? 140 : random(2500, 6000)); } }   // one in five is a double blink
+  } else blinkPhase = 0;
+  if (!touching) {
+    bool wander = mood == IDLE || mood == SAD || mood == SLEEPY;
+    if (!wander) { lookX = lookY = 0; nextLook = now + 600; }
+    else if (now > nextLook) {
+      if (!slow && random(100) < 18) { lookX = random(2) ? 13 : -13; lookY = random(-2, 3); nextLook = now + random(600, 1300); }   // a glance to the side
+      else { lookX = random(-6, 7) * (slow ? 0.5f : 1); lookY = random(-3, 4); nextLook = now + random(1200, 3800) * (slow ? 2 : 1); }
+    }
+    float breath = mood == ASLEEP ? sinf(now / 720.0f) * 3 : sinf(now / 480.0f) * 1.5f;
+    gazeX.to(lookX); gazeY.to(lookY + breath + (mood == SAD ? 5 : 0));
   }
-  if (!touching) { float t = now / 1000.0f; gazeX.to(sinf(t * 0.7f) * 6); gazeY.to(cosf(t * 0.5f) * 3); }
-  openL.to(oL); openR.to(oR); mouthCurve.to(curve); mouthO.to(o); eyeScale.to(scale);
-  openL.step(0.35f); openR.step(0.35f); mouthCurve.step(0.2f); mouthO.step(0.3f); eyeScale.step(0.2f); gazeX.step(0.15f); gazeY.step(0.15f);
+  openL.to(oL); openR.to(oR); mouthCurve.to(e.curve); mouthO.to(o); eyeScale.to(e.scale); lidIn.to(e.lidIn); lidOut.to(e.lidOut);
+  openL.step(0.35f); openR.step(0.35f); mouthCurve.step(0.2f); mouthO.step(0.3f); eyeScale.step(0.2f); lidIn.step(0.2f); lidOut.step(0.2f);
+  gazeX.step(touching ? 0.15f : 0.3f); gazeY.step(touching ? 0.15f : 0.3f);
 }
 
 struct FaceScreen : Screen {
@@ -150,16 +219,30 @@ struct FaceScreen : Screen {
   const char *name() override { return "Robo"; }
   bool titleBack() override { return false; }
   void render() override { frame.fillScreen(BG); }
-  void enter() override { nextBlink = millis() + 800; setMood(SURPRISED, pick(HELLO, 4), 2200); lastFrame = millis(); touching = false; }
-  void leave() override { neopixelWrite(PIN_LED, 0, 0, 0); }
+  void enter() override { nextBlink = millis() + 800; lastBase = IDLE; lastNoise = 0; setMood(SURPRISED, pick(HELLO, 4), 2200); lastFrame = millis(); touching = false; }
+  void leave() override { neopixelWrite(PIN_LED, 0, 0, 0); ledShown = -1; }
   void tick() override {
-    if (micOk) { int p = micPeak(); if (p > micAvg * 6 + 1500 && mood == IDLE) setMood(STARTLED, pick(STARTLE, 3), 2000); micAvg += (p - micAvg) * 0.02f; }
+    uint32_t now = millis();
+    if (micOk) {
+      int p = micPeak();
+      if (p > micAvg * 6 + 1500 && react == IDLE) { setMood(STARTLED, pick(STARTLE, 3), 2000); lastNoise = now; }   // a loud noise also wakes it
+      micAvg += (p - micAvg) * 0.02f;
+    }
+    if (touching && !tickled && react != ANGRY && react != GROGGY && now - downAt > 700) {   // a long press or a slow stroke: petting
+      if (react != LOVE) setMood(LOVE, pick(LOVEL, 3), 1500); else reactUntil = captionUntil = now + 1500;
+    }
+    if (asleep) { led(ASLEEP); delay(30); return; }   // the panel is off: nothing to draw
     updateAnim(); drawFace(); led(mood);
-    uint32_t now = millis(); dtk = (now - lastFrame) / 33.0f; lastFrame = now;
+    now = millis(); dtk = (now - lastFrame) / 33.0f; lastFrame = now;
   }
-  void onDown(int x, int y) override { touching = true; dragDist = 0; }
+  void onDown(int x, int y) override {
+    touching = true; tickled = false; dragDist = 0; reversals = 0; lastDx = 0; downAt = millis();
+    if (mood == ASLEEP) setMood(GROGGY, pick(WAKE, 3), 2600);
+  }
   void onMove(int x, int y, int dx, int dy) override {
-    dragDist += abs(dx) + abs(dy); if (dragDist > 60) onTickle();
+    dragDist += abs(dx) + abs(dy);
+    if (abs(dx) >= 3) { if (lastDx && (dx > 0) != (lastDx > 0)) reversals++; lastDx = dx; }
+    if (dragDist > 60 && react != LOVE && (reversals >= 2 || dragDist > 0.25f * (millis() - downAt))) { tickled = true; onTickle(); }   // quick or back-and-forth: a tickle
     gazeX.to(constrain((x - W / 2) * 0.12f, -14.f, 14.f)); gazeY.to(constrain((y - (H / 2 - 28)) * 0.1f, -8.f, 8.f));
   }
   void onTap(int x, int y) override { onTapFace(x, y); }
