@@ -10,7 +10,7 @@ A small phone-style OS for the LCDWiki **ES3C28P** board: ESP32-S3, 2.8" 320x240
 
 ## Apps
 
-- **Robo**: an animated companion face. It reacts to touch and noise, dozes off when left alone and frets about a low battery.
+- **Robo**: an animated companion face. It reacts to touch, noise, the weather, the battery and Spotify, remembers how it has been treated, runs a focus timer and can act as a screensaver on USB power.
 - **Weather**: current conditions and a 5-day forecast from Open-Meteo, for a saved place or your IP location.
 - **Spotify**: a Spotify Connect remote. Now playing with album art, play/pause, skip and volume for whatever device is playing.
 - **Book**: a text reader with a library of covers, chapters, three text sizes, three line spacings and saved progress. Justified text with best-fit line breaks, hyphenation, italics and bold, in Literata. Books come from the microSD card.

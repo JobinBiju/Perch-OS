@@ -153,7 +153,9 @@ void lightSleep(int secs = 0) {
 void sleepLoop() {
   if (touching) return;
   uint32_t idle = millis() - lastActivity;
-  if (cfg.sleepMin && !asleep && idle > (uint32_t)cfg.sleepMin * 60000UL) displaySleep();
+  if (cfg.sleepMin && !asleep && !face::ambient && idle > (uint32_t)cfg.sleepMin * 60000UL) { if (cfg.ambient && bat.usb) face::ambientStart(); else displaySleep(); }
+  if (face::ambient) { if (!bat.usb) { face::ambientEnd(); displaySleep(); } return; }   // the screensaver needs USB power, and holds off the deeper sleeps
+  if (face::focusEnd) return;                 // a running focus timer keeps the CPU awake
   if (bat.host) return;                       // plugged into a computer: stay reachable for serial and flashing
   if (cfg.deepMin && idle > (uint32_t)cfg.deepMin * 60000UL) deepSleep();
   else if (cfg.lightMin && idle > (uint32_t)cfg.lightMin * 60000UL) lightSleep();
@@ -163,6 +165,7 @@ void handleTouch() {
   int x, y; bool t = readTouch(x, y);
   Screen *s = current();
   if (t && !touching && asleep) { wakeTouch = true; displayWake(); }   // a touch on a dark screen only wakes it
+  if (t && !touching && face::ambient) { wakeTouch = true; face::ambientEnd(); }   // and a touch on the screensaver only ends it
   if (wakeTouch) { if (!t) wakeTouch = false; return; }
   if (t) lastActivity = millis();
   if (pullMode) { if (t) pullSeen = millis(); else if (millis() - pullSeen < PULL_DROP_MS) return; }   // the panel loses the finger briefly near its top edge: keep the card up
@@ -252,7 +255,7 @@ void handleSerial() {
       if (sscanf(line, "t %d %d", &a, &b) == 2) { synth = {true, a, b, a, b, millis(), 80}; }
       else if (line[0] == 'y' && (!line[1] || line[1] == ' ')) lightSleep(atoi(line + 1));   // light sleep now; "y 40" also wakes after 40 s
       else if (line[0] == 'Y' && (!line[1] || line[1] == ' ')) deepSleep(atoi(line + 1));    // deep sleep now; "Y 15" also wakes after 15 s
-      else if (line[0] == 'm' && line[1] == ' ') { int v = atoi(line + 2); if (v == 98) face::ampTest(); else if (v == 99) face::spinTest(); else face::force = v; }   // hold Robo expression N; -1 releases; 98 amp test, 99 circle-drag test
+      else if (line[0] == 'm' && line[1] == ' ') { int v = atoi(line + 2); if (v >= 90) face::debug(v); else face::force = v; }   // hold Robo expression N; -1 releases; 90 and up are test hooks
       else if (line[0] == 'f' && line[1] == ' ') {   // font test: draw the text in every font
         const lgfx::IFont *fs[] = {F12, F12M, F16, F16B, RD12, RD16, RD20, F24B}; frame.fillScreen(C.BG); int y = 4;
         for (auto f : fs) { text(8, y, line + 2, C.TEXT, f); frame.setFont(f); y += frame.fontHeight() + 4; }
@@ -310,7 +313,7 @@ void loop() {
   static uint32_t lastLog = 0; static int frames = 0;
   handleSerial();
   netLoop(); batLoop(); spLoop(); portalLoop();
-  handleTouch(); sleepLoop(); usbReattachLoop();
+  handleTouch(); sleepLoop(); usbReattachLoop(); face::focusLoop();
   Screen *s = current();
   if (!edgeMode && !pullMode) {   // a slide or the brightness card owns the panel
     s->tick();

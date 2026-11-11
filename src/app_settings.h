@@ -265,11 +265,11 @@ struct BatteryScreen : Screen {
 
 // ---------- main settings list (scrollable) ----------
 struct SettingsScreen : Screen {
-  static constexpr int Y0 = CONTENT_Y, NROWS = 14;
+  static constexpr int Y0 = CONTENT_Y, NROWS = 15;
   static constexpr int SW_X0 = W - MARGIN - 10 - 5 * 22, SW_P = 22;   // six accent swatches, 22 px apart, the last 10 px from the card edge
   static constexpr int SL_X = W - MARGIN - 12 - 120, SL_W = 120;   // brightness slider, 12 px from the card's right edge
   static constexpr int TG_X = W - MARGIN - 8 - 92, TG_W = 92, TG_H = 44;   // 92x24 toggle, two 44 px halves, 8 px from the card's right edge
-  enum { R_WIFI, R_LOC, R_BRIGHT, R_SLEEP, R_LIGHT, R_DEEP, R_UNITS, R_THEME, R_ACCENT, R_FLIP, R_SOUND, R_BATTERY, R_STORAGE, R_ABOUT };
+  enum { R_WIFI, R_LOC, R_BRIGHT, R_SLEEP, R_LIGHT, R_DEEP, R_UNITS, R_THEME, R_ACCENT, R_FLIP, R_SOUND, R_AMBIENT, R_BATTERY, R_STORAGE, R_ABOUT };
   static constexpr int SLEEP_STEPS[] = {0, 1, 2, 5, 10, 30};   // minutes; 0 = never
   static constexpr int LIGHT_STEPS[] = {0, 2, 5, 10, 30}, DEEP_STEPS[] = {0, 10, 30, 60, 120};   // battery sleep, minutes idle; 0 = never
   static int nextStep(const int *st, int n, int cur, int floor = 0) {   // the step after cur, skipping non-zero ones below floor
@@ -346,6 +346,10 @@ struct SettingsScreen : Screen {
           tile(y, C.SKY); frame.fillRect(gx - 7, gy - 2, 4, 5, C.WHITE); frame.fillTriangle(gx - 4, gy - 3, gx + 1, gy - 7, gx + 1, gy + 7, C.WHITE); frame.fillTriangle(gx - 4, gy - 3, gx - 4, gy + 3, gx + 1, gy + 7, C.WHITE); frame.fillArc(gx + 1, gy, 6, 5, 310, 50, C.WHITE);
           text(56, cy, "Robo sounds", C.TEXT, F16, textdatum_t::middle_left);
           toggle(y, cfg.roboSound, "Off", "On"); break;
+        case R_AMBIENT:
+          tile(y, C.ORANGE); frame.fillSmoothRoundRect(gx - 7, gy - 6, 5, 8, 2, C.WHITE); frame.fillSmoothRoundRect(gx + 2, gy - 6, 5, 8, 2, C.WHITE); frame.fillArc(gx, gy + 2, 5, 4, 30, 150, C.WHITE);
+          text(56, cy, "Robo screensaver", C.TEXT, F16, textdatum_t::middle_left);
+          toggle(y, cfg.ambient, "Off", "On"); break;
         case R_BATTERY:
           tile(y, C.GREEN); icon(gx, gy, bat.charging ? IC_BATTERY_CHARGING : IC_BATTERY_FULL, IC14, C.WHITE);
           text(56, cy, "Battery", C.TEXT, F16, textdatum_t::middle_left);
@@ -385,6 +389,7 @@ struct SettingsScreen : Screen {
       case R_ACCENT: if (x >= SW_X0 - 11) { cfg.accent = constrain((x - SW_X0 + 11) / SW_P, 0, NACCENTS - 1); applyAccent(cfg.accent); cfgSave(); dirty = true; } break;
       case R_FLIP: cfg.flip = !cfg.flip; applyRotation(cfg.flip); cfgSave(); dirty = true; break;
       case R_SOUND: cfg.roboSound = !cfg.roboSound; cfgSave(); dirty = true; break;
+      case R_AMBIENT: cfg.ambient = !cfg.ambient; cfgSave(); dirty = true; break;
       case R_BATTERY: pushScreen(&batteryScreen); break;
       case R_STORAGE: pushScreen(&storageScreen); break;
       case R_ABOUT: pushScreen(&aboutScreen); break;

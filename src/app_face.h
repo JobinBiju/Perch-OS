@@ -15,7 +15,7 @@ float dtk = 1.0f;
 
 // One row per expression: eye openness (left, right), top lid drop at the inner and outer corner (0..1 of the eye),
 // eye scale, mouth curve (-1 frown .. 1 smile), mouth "o", eye shape, colour, LED. updateAnim() eases towards the row.
-enum Mood { IDLE, HAPPY, WINK_L, WINK_R, SURPRISED, ANGRY, STARTLED, SLEEPY, ASLEEP, GROGGY, SAD, LOVE, EXCITED, DANCE, COLD, HOT, RAIN, DIZZY, SUSPICIOUS, BORED, MOOD_N };
+enum Mood { IDLE, HAPPY, WINK_L, WINK_R, SURPRISED, ANGRY, STARTLED, SLEEPY, ASLEEP, GROGGY, SAD, LOVE, EXCITED, DANCE, COLD, HOT, RAIN, DIZZY, SUSPICIOUS, BORED, FOCUS, GRUMPY, MOOD_N };
 enum Shape { S_RECT, S_ARC, S_HEART, S_SHUT, S_SPIRAL };
 struct Expr { float oL, oR, lidIn, lidOut, scale, curve, o; Shape shape; uint16_t col; uint8_t r, g, b; };
 static const uint16_t PINK = lcd.color565(255, 96, 150), SAD_BLUE = lcd.color565(70, 130, 220), Z_DIM = lcd.color565(60, 90, 130), ICE = lcd.color565(170, 215, 255);
@@ -40,6 +40,8 @@ static const Expr EXPR[MOOD_N] = {
   /* DIZZY     */ {1, 1, 0, 0, 1, 0, 0.6f, S_SPIRAL, EYE_BLUE, 30, 20, 40},
   /* SUSPICIOUS*/ {0.42f, 0.9f, 0.3f, 0.3f, 1, 0, 0, S_RECT, EYE_BLUE, 30, 20, 0},
   /* BORED     */ {0.85f, 0.85f, 0.32f, 0.32f, 1, 0, 0, S_RECT, EYE_BLUE, 0, 6, 20},
+  /* FOCUS     */ {0.8f, 0.8f, 0.24f, 0.24f, 1, 0, 0, S_RECT, EYE_BLUE, 0, 0, 0},
+  /* GRUMPY    */ {0.9f, 0.9f, 0.34f, 0.1f, 1, 0, 0, S_RECT, EYE_BLUE, 20, 6, 0},
 };
 // `react` is a timed reaction; when it runs out the face falls back to the base mood (idle, sleepy, asleep or sad). `mood` is what is drawn.
 Mood mood = IDLE, react = IDLE, lastBase = IDLE; uint32_t reactUntil = 0, reactStart = 0; const char *caption = ""; uint32_t captionStart = 0, captionUntil = 0;
@@ -52,6 +54,10 @@ bool touching = false, tickled = false; float dragDist = 0; int reversals = 0, l
 bool micOk = false; float micAvg = 200, beat = 1;   // beat: how hard the dance bounces, from the mic level
 float noiseFloor = 200, voice = 0, heard = 0; bool wasLoud = false; uint32_t lastClap = 0, lastSus = 0, deafUntil = 0; int susDir = 1;   // voice: 0..1 level above the room's floor; heard: how steadily someone is talking
 float segX = 0, segY = 0, lastAng = 0, turn = 0; bool hasAng = false;   // circular drags: the turning of the finger's path adds up in `turn`
+// Mood memory: how fond, rested and bored Robo is. It drifts with time and with how it is treated, and is kept in flash.
+struct Soul { float aff = 0.5f, energy = 0.8f, bored = 0; } soul; bool soulLoaded = false; uint32_t soulAt = 0, soulSaved = 0; float awayH = 0;
+bool ambient = false, ambientPushed = false;   // screensaver: Robo keeps the dimmed screen instead of it going dark
+uint32_t focusEnd = 0, focusTapAt = 0; int focusMin = 0, focusIdx = 0; bool focusHalf = false, topDirty = true;   // focus timer; focusEnd is a millis() deadline, 0 = off
 char dyn[64]; String lastTitle; uint32_t nextRemark = 0; bool prevUsb = false, prevFull = false; int lastHour = -1;
 
 bool esWrite(uint8_t reg, uint8_t val) { Wire.beginTransmission(ES8311_ADDR); Wire.write(reg); Wire.write(val); return Wire.endTransmission() == 0; }
@@ -103,11 +109,11 @@ static const Seg S_RAIN[] = {{1000, 1200, 80}, {0, 0, 0}};
 static const Seg S_DIZZY[] = {{600, 1200, 150}, {1200, 600, 150}, {600, 1200, 150}, {1200, 500, 200}, {0, 0, 0}};
 static const Seg S_SUS[] = {{550, 850, 180}, {0, 0, 0}};
 static const Seg S_BORED[] = {{560, 420, 450}, {0, 0, 0}};
-static const Seg *const SND[MOOD_N] = {nullptr, S_HAPPY, S_WINK, S_WINK, S_HELLO, S_ANGRY, S_STARTLE, nullptr, nullptr, S_GROGGY, S_SAD, S_LOVE, S_EXCITED, nullptr, S_COLD, S_HOT, S_RAIN, S_DIZZY, S_SUS, S_BORED};
+static const Seg *const SND[MOOD_N] = {nullptr, S_HAPPY, S_WINK, S_WINK, S_HELLO, S_ANGRY, S_STARTLE, nullptr, nullptr, S_GROGGY, S_SAD, S_LOVE, S_EXCITED, nullptr, S_COLD, S_HOT, S_RAIN, S_DIZZY, S_SUS, S_BORED, nullptr, nullptr};
 static constexpr int AMP_ON = LOW;   // the amplifier's enable pin is active low on this board
 const Seg *snd = nullptr; int sndSeg = 0, sndAt = 0, pendN = 0; float sndPhase = 0; bool ampOn = false; uint32_t ampOffAt = 0; int16_t pend[256 * 2];
 void play(const Seg *s) {
-  if (!s || !micOk || !cfg.roboSound || asleep) return;
+  if (!s || !micOk || !cfg.roboSound || asleep || ambient) return;
   snd = s; sndSeg = sndAt = 0; sndPhase = 0;
   if (!ampOn) { digitalWrite(PIN_AMP_EN, AMP_ON); ampOn = true; }
 }
@@ -185,6 +191,9 @@ void drawCaption() {
     uint32_t shown = (millis() - captionStart) / 35 + 1; size_t len = strlen(caption); if (shown > len) shown = len;
     char buf[64]; strncpy(buf, caption, shown); buf[shown] = 0;
     text(W / 2, CAP_Y + CAP_H - 8, buf, mood == ANGRY ? EYE_WHITE : mood == LOVE ? PINK : TEXT_BLUE, F12, textdatum_t::bottom_center);
+  } else if (ambient) {   // the screensaver shows the time where captions go
+    time_t t = time(nullptr); struct tm tm; localtime_r(&t, &tm);
+    if (tm.tm_year > 120) { char b[8]; snprintf(b, sizeof b, "%d:%02d", (tm.tm_hour + 11) % 12 + 1, tm.tm_min); text(W / 2, CAP_Y + CAP_H - 6, b, Z_DIM, F16, textdatum_t::bottom_center); }
   }
   flushRows(CAP_Y, CAP_H);
 }
@@ -220,10 +229,26 @@ void drawFace() {
   }
   if (mood == RAIN) for (int i = 0; i < 10; i++) { int x = 24 + i * 30 + (i * 7) % 11, y = FACE_Y + 2 + (int)fmodf(ms * 0.07f + i * 13, 22); frame.drawLine(x, y, x - 3, y + 8, TEXT_BLUE); frame.drawLine(x + 1, y, x - 2, y + 8, TEXT_BLUE); }
   flushRows(FACE_Y, FACE_H);
-  static const char *lastCap = nullptr; static size_t lastLen = 0; static Mood lastMood = IDLE;
+  static const char *lastCap = nullptr; static size_t lastLen = 0; static Mood lastMood = IDLE; static int lastMin = -1;
+  int minNow = ambient ? (int)(time(nullptr) / 60 % 60) : -1; if (minNow != lastMin) { lastMin = minNow; lastCap = nullptr; }
   size_t shown = caption[0] ? min(strlen(caption), (size_t)((millis() - captionStart) / 35 + 1)) : 0;
   if (caption != lastCap || shown != lastLen || mood != lastMood) { drawCaption(); lastCap = caption; lastLen = shown; lastMood = mood; }
 }
+
+// The strip above the face: the focus timer's button and its countdown.
+void drawTop() {
+  static int lastSec = -2; int left = focusEnd ? max(0, (int)((int32_t)(focusEnd - millis()) / 1000)) : -1;
+  if (left == lastSec && !topDirty) return;
+  lastSec = left; topDirty = false;
+  frame.fillRect(0, 0, W, FACE_Y, BG);
+  if (!ambient) {
+    icon(W - 22, 16, IC_TIMER, IC16, focusEnd ? MINT : Z_DIM);
+    if (focusEnd) { char b[8]; snprintf(b, sizeof b, "%d:%02d", left / 60, left % 60); text(W - 40, 16, b, TEXT_BLUE, F16, textdatum_t::middle_right); }
+  }
+  flushRows(0, FACE_Y);
+}
+void fond(float d) { soul.aff = constrain(soul.aff + d, 0.0f, 1.0f); soul.bored = 0; }
+bool calm() { return mood == IDLE || mood == GRUMPY; }
 
 bool inEye(int x, int y, bool left) { float ex = W / 2 + (left ? -46 : 46), ey = H / 2 - 28; return fabsf(x - ex) < 40 && fabsf(y - ey) < 48; }
 int recentPokes() { uint32_t now = millis(); int n = 0; for (int i = 0; i < 8; i++) if (pokeTimes[i] && now - pokeTimes[i] < 4000) n++; return n; }
@@ -240,6 +265,8 @@ const char *LOWBAT[] = {"I'm running low...", "Feeling a bit drained.", "Could u
 const char *DIZZYL[] = {"Whoa... spinning...", "Stop the room, please.", "Round and round..."};
 const char *SUS[] = {"Hm? What was that?", "Did something move?", "I heard that."};
 const char *BOREDL[] = {"So... what now?", "*sigh*", "I spy... a wall."};
+const char *GRUMPYL[] = {"Hmph.", "Nobody pets me anymore.", "I'm fine. Really."};
+const char *CONTENT[] = {"I like it here.", "This is nice.", "La la la..."};
 const char *PLUG[] = {"Yum, power!", "Ahh, that's the stuff.", "Charging. Thank you!"};
 const char *FULL[] = {"All charged up!", "I'm full. 100%."};
 const char *NOWIFI[] = {"I lost the Wi-Fi...", "Where did the internet go?"};
@@ -247,6 +274,8 @@ const char *NOWIFI[] = {"I lost the Wi-Fi...", "Where did the internet go?"};
 bool clockNow(struct tm &tm) { time_t t = time(nullptr); localtime_r(&t, &tm); return tm.tm_year > 120; }
 bool dancing() { return sp.linked && sp.have && sp.playing; }
 const char *greeting() {
+  if (soul.aff < 0.2f) return random(2) ? "Oh. It's you." : "Hmph. Hello.";
+  if (soul.aff > 0.75f && awayH > 1) return "I missed you!";
   struct tm tm; if (!clockNow(tm) || random(3) == 0) return pick(HELLO, 4);
   int h = tm.tm_hour; return h >= 5 && h < 12 ? "Good morning!" : h < 17 ? "Good afternoon!" : h < 23 ? "Good evening." : "It's late. Still up?";
 }
@@ -276,21 +305,54 @@ void events() {
   if (dancing()) {
     if (sp.title != lastTitle && awake && react == IDLE) { lastTitle = sp.title; snprintf(dyn, sizeof dyn, "%.34s - %.20s", sp.title.c_str(), sp.artist.c_str()); say(dyn, 6000); }
   } else lastTitle = "";
-  if (mood == IDLE && !caption[0] && now > nextRemark) {
-    nextRemark = now + (wx.ok ? random(45000, 80000) : 10000);
-    if (now - lastActivity > 20000 && random(100) < 35) setMood(BORED, pick(BOREDL, 3), 4000); else weatherRemark();
+  if (focusEnd && !focusHalf && (int32_t)(focusEnd - now) < focusMin * 30000) { focusHalf = true; say("Halfway there.", 3000); }
+  if (calm() && !caption[0] && now > nextRemark) {
+    nextRemark = now + (wx.ok ? random(45000, 80000) : 10000); int r = random(100);
+    if (mood == GRUMPY && r < 45) say(pick(GRUMPYL, 3), 3500);
+    else if (now - lastActivity > 20000 && r < 15 + soul.bored * 60) setMood(BORED, pick(BOREDL, 3), 4000);
+    else if (soul.aff > 0.75f && r > 75) setMood(HAPPY, pick(CONTENT, 3), 2500);
+    else weatherRemark();
   }
 }
 
+void soulSave() {
+  prefs.begin("perch", false); prefs.putFloat("saff", soul.aff); prefs.putFloat("sen", soul.energy); prefs.putLong64("sstamp", (int64_t)time(nullptr)); prefs.end();
+  soulSaved = millis();
+}
+// Load once, then account for the time away: fondness fades slowly, rest comes back.
+void soulWake() {
+  if (!soulLoaded) { prefs.begin("perch", true); soul.aff = prefs.getFloat("saff", 0.5f); soul.energy = prefs.getFloat("sen", 0.8f); int64_t st = prefs.getLong64("sstamp", 0); prefs.end(); soulLoaded = true;
+    time_t t = time(nullptr); awayH = st > 1600000000 && t > st ? (t - st) / 3600.0f : 0; }
+  else awayH = (millis() - soulAt) / 3600000.0f;
+  soul.aff = constrain(soul.aff - 0.01f * min(awayH, 72.0f), 0.0f, 1.0f); soul.energy = constrain(soul.energy + awayH, 0.0f, 1.0f); soul.bored = 0; soulAt = millis();
+}
+void soulStep() {   // while Robo is open
+  uint32_t now = millis(); float dt = (now - soulAt) / 1000.0f; if (dt < 1) return; soulAt = now;
+  soul.energy = constrain(soul.energy + (mood == ASLEEP ? dt / 1200 : -dt / 10800), 0.0f, 1.0f);
+  soul.bored = now - lastActivity < 5000 ? 0 : min(1.0f, soul.bored + dt / 600);
+  if (now - soulSaved > 300000) soulSave();
+}
+void focusStop() { focusEnd = 0; topDirty = true; }
+void focusTap() {   // the timer button: starts 25 minutes; tapping again within 4 s steps to 50, 10, off; a later tap stops it
+  static const int STEPS[] = {25, 50, 10}; uint32_t now = millis();
+  if (!focusEnd) focusIdx = 0; else if (now - focusTapAt < 4000) focusIdx++; else focusIdx = 3;
+  focusTapAt = now; topDirty = true;
+  if (focusIdx >= 3) { focusStop(); say("Timer off.", 2000); return; }
+  focusMin = STEPS[focusIdx]; focusEnd = now + focusMin * 60000UL; if (!focusEnd) focusEnd = 1; focusHalf = false;
+  snprintf(dyn, sizeof dyn, "Focus: %d minutes. Go!", focusMin); say(dyn, 2500);
+}
+
 void onTapFace(int x, int y) {
+  if (x > W - 56 && y < 40 && !ambient) { focusTap(); return; }
   if (mood == ANGRY || mood == GROGGY) return;
   pokeTimes[pokeIdx++ & 7] = millis();
-  if (recentPokes() >= 5) { setMood(ANGRY, pick(ANGRYL, 3), 3500); return; }
+  if (recentPokes() >= 5) { fond(-0.12f); setMood(ANGRY, pick(ANGRYL, 3), 3500); return; }
+  fond(0.01f);
   if (inEye(x, y, true)) setMood(WINK_L, pick(WINK, 3), 1800);
   else if (inEye(x, y, false)) setMood(WINK_R, pick(WINK, 3), 1800);
   else setMood(SURPRISED, pick(HELLO, 4), 2200);
 }
-void onTickle() { if (mood != ANGRY && mood != HAPPY && mood != GROGGY && react != DIZZY) setMood(HAPPY, pick(TICKLE, 3), 2500); }
+void onTickle() { if (mood != ANGRY && mood != HAPPY && mood != GROGGY && react != DIZZY) { fond(0.03f); setMood(HAPPY, pick(TICKLE, 3), 2500); } }
 
 // What the face does when nothing is happening to it. It dozes off ahead of the display-sleep timer, so the screen goes dark on a sleeping face.
 int sadWhy() {   // 1 low battery, 2 Wi-Fi lost after having had it
@@ -301,11 +363,14 @@ int sadWhy() {   // 1 low battery, 2 Wi-Fi lost after having had it
 Mood baseMood() {
   uint32_t now = millis(), idle = now - lastActivity; if (lastNoise && now - lastNoise < idle) idle = now - lastNoise;
   uint32_t nap = cfg.sleepMin ? (uint32_t)cfg.sleepMin * 60000UL : 240000UL;
-  time_t t = time(nullptr); struct tm tm; localtime_r(&t, &tm);
-  if (tm.tm_year > 120 && (tm.tm_hour >= 23 || tm.tm_hour < 6) && nap > 120000UL) nap = 120000UL;   // late at night it tires sooner
-  if (idle > nap / 5 * 4) return ASLEEP;
-  if (idle > nap / 2) return SLEEPY;
-  return sadWhy() ? SAD : dancing() ? DANCE : IDLE;
+  time_t t = time(nullptr); struct tm tm; localtime_r(&t, &tm); bool night = tm.tm_year > 120 && (tm.tm_hour >= 23 || tm.tm_hour < 6);
+  if (night && nap > 120000UL) nap = 120000UL;   // late at night it tires sooner
+  if (soul.energy < 0.25f) nap /= 2;             // and when it is worn out
+  if (focusEnd) return FOCUS;                    // it stays up with you
+  if (ambient) { if (night) return ASLEEP; }     // the screensaver is awake by day and asleep at night
+  else if (idle > nap / 5 * 4) return ASLEEP;
+  else if (idle > nap / 2) return SLEEPY;
+  return sadWhy() ? SAD : dancing() ? DANCE : soul.aff < 0.2f ? GRUMPY : IDLE;
 }
 
 void updateAnim() {
@@ -327,7 +392,7 @@ void updateAnim() {
     if (now < yawnUntil) { o = 1.6f; oL = oR = 0.12f; }
   }
   if (mood == SAD && now > nextSigh) { nextSigh = now + random(18000, 26000); if (sadWhy() == 2) say(pick(NOWIFI, 2), 3500); else say(pick(LOWBAT, 3), 3500); }
-  if (mood == IDLE && heard > 0.4f) o = 0.42f + voice * 1.3f;   // someone is talking: the mouth follows their voice
+  if (calm() && heard > 0.4f) o = 0.42f + voice * 1.3f;   // someone is talking: the mouth follows their voice
   if (caption[0] && caption[0] != '*' && o < 0.5f && mood != ASLEEP && now - captionStart < strlen(caption) * 35) o = ((now / 100) & 1) ? 0.95f : 0.2f;   // its own words: the mouth flaps while the caption types out
   bool slow = mood == SLEEPY || mood == GROGGY || mood == BORED;
   if (e.shape == S_RECT && mood != WINK_L && mood != WINK_R && mood != ANGRY && mood != STARTLED && now > yawnUntil) {
@@ -336,7 +401,7 @@ void updateAnim() {
     if (blinkPhase == 2) { if (now - blinkT > (slow ? 240u : 110u)) { blinkPhase = 0; nextBlink = now + (!slow && random(100) < 20 ? 140 : random(2500, 6000)); } }   // one in five is a double blink
   } else blinkPhase = 0;
   if (!touching) {
-    bool wander = mood == IDLE || mood == SAD || mood == SLEEPY;
+    bool wander = calm() || mood == SAD || mood == SLEEPY || mood == FOCUS;
     if (!wander) { lookX = lookY = 0; nextLook = now + 600; }
     else if (now > nextLook) {
       if (!slow && random(100) < 18) { lookX = random(2) ? 13 : -13; lookY = random(-2, 3); nextLook = now + random(600, 1300); }   // a glance to the side
@@ -349,7 +414,7 @@ void updateAnim() {
     else if (mood == SUSPICIOUS) { gazeX.to(susDir * 12); gazeY.to(0); }
     else if (mood == DIZZY) { gazeX.to(sinf(now / 300.0f) * 6); gazeY.to(cosf(now / 300.0f) * 3); }
     else if (mood == DANCE) { gazeX.to(sinf(now / 500.0f * 3.1416f) * 7); gazeY.to(2 - fabsf(sinf(now / 500.0f * 3.1416f)) * 7 * beat); }   // sway and bounce at about 120 a minute
-    else gazeX.to(lookX + (mood == COLD ? ((now / 45) & 1 ? 2.5f : -2.5f) : 0)), gazeY.to(lookY + breath + (mood == SAD ? 5 : mood == RAIN ? -8 : 0));
+    else gazeX.to(lookX + (mood == COLD ? ((now / 45) & 1 ? 2.5f : -2.5f) : 0)), gazeY.to(lookY + breath + (mood == SAD ? 5 : mood == FOCUS ? 4 : mood == RAIN ? -8 : 0));
   }
   openL.to(oL); openR.to(oR); mouthCurve.to(e.curve); mouthO.to(o); eyeScale.to(e.scale); lidIn.to(e.lidIn); lidOut.to(e.lidOut);
   openL.step(0.35f); openR.step(0.35f); mouthCurve.step(0.2f); mouthO.step(0.3f); eyeScale.step(0.2f); lidIn.step(0.2f); lidOut.step(0.2f);
@@ -361,10 +426,11 @@ struct FaceScreen : Screen {
   const char *name() override { return "Robo"; }
   bool titleBack() override { return false; }
   void render() override { frame.fillScreen(BG); }
-  void enter() override { nextBlink = millis() + 800; lastBase = IDLE; lastNoise = 0; setMood(SURPRISED, greeting(), 2200);
+  void enter() override { nextBlink = millis() + 800; lastBase = IDLE; lastNoise = 0; soulWake(); topDirty = true;
+    if (ambient) { react = IDLE; caption = ""; } else setMood(SURPRISED, greeting(), 2200);
     prevUsb = bat.usb; prevFull = bat.full; lastHour = -1; lastTitle = ""; nextRemark = millis() + 9000;
     sp.pollMs = 10000; sp.wantPolling = true; /* a slow poll is enough to know whether music is playing */ lastFrame = millis(); touching = false; }
-  void leave() override { neopixelWrite(PIN_LED, 0, 0, 0); ledShown = -1; sp.wantPolling = false; snd = nullptr; pendN = 0; digitalWrite(PIN_AMP_EN, !AMP_ON); ampOn = false; }
+  void leave() override { neopixelWrite(PIN_LED, 0, 0, 0); ledShown = -1; sp.wantPolling = false; soulSave(); snd = nullptr; pendN = 0; digitalWrite(PIN_AMP_EN, !AMP_ON); ampOn = false; }
   void tick() override {
     uint32_t now = millis();
     soundLoop();
@@ -375,19 +441,19 @@ struct FaceScreen : Screen {
       if (deaf || dancing()) { voice = 0; heard *= 0.85f; }
       else {
         if (loud && !wasLoud) {
-          if (lastClap && now - lastClap > 150 && now - lastClap < 700) { lastClap = 0; lastNoise = now; displayWake(); setMood(HAPPY, "You called?", 2500); }   // two claps: wakes the screen too
+          if (lastClap && now - lastClap > 150 && now - lastClap < 700) { lastClap = 0; lastNoise = now; displayWake(); fond(0.02f); setMood(HAPPY, "You called?", 2500); }   // two claps: wakes the screen too
           else { lastClap = now; if (react == IDLE) { setMood(STARTLED, pick(STARTLE, 3), 2000); lastNoise = now; } }
-        } else if (!loud && mood == IDLE && p > micAvg * 3 + 600 && now - lastSus > 20000) { lastSus = now; susDir = random(2) ? 1 : -1; setMood(SUSPICIOUS, pick(SUS, 3), 2500); }
+        } else if (!loud && calm() && p > micAvg * 3 + 600 && now - lastSus > 20000) { lastSus = now; susDir = random(2) ? 1 : -1; setMood(SUSPICIOUS, pick(SUS, 3), 2500); }
         voice = constrain((p - noiseFloor * 2 - 400) / 4000.0f, 0.0f, 1.0f); heard = heard * 0.85f + (voice > 0.1f ? 0.15f : 0);
         if (heard > 0.4f) lastNoise = now;
       }
       wasLoud = loud; micAvg += (p - micAvg) * 0.02f;
     }
     if (touching && !tickled && react != ANGRY && react != GROGGY && now - downAt > 700) {   // a long press or a slow stroke: petting
-      if (react != LOVE) setMood(LOVE, pick(LOVEL, 3), 1500); else reactUntil = captionUntil = now + 1500;
+      if (react != LOVE) { fond(0.08f); setMood(LOVE, pick(LOVEL, 3), 1500); } else reactUntil = captionUntil = now + 1500;
     }
     if (asleep) { led(ASLEEP); delay(30); return; }   // the panel is off: nothing to draw
-    events(); updateAnim(); drawFace(); led(mood);
+    events(); soulStep(); updateAnim(); drawFace(); drawTop(); led(ambient ? ASLEEP : mood);
     now = millis(); dtk = (now - lastFrame) / 33.0f; lastFrame = now;
   }
   void onDown(int x, int y) override {
@@ -402,7 +468,7 @@ struct FaceScreen : Screen {
       if (hasAng && fabsf(d) < 2.2f) turn += d;   /* a sharper turn is a reversal, not a circle */
       lastAng = a; hasAng = true; segX = segY = 0;
     }
-    if (fabsf(turn) > 12.5f && react != ANGRY && react != GROGGY && react != DIZZY) { turn = 0; tickled = true; setMood(DIZZY, pick(DIZZYL, 3), 3500); }   /* two full circles */
+    if (fabsf(turn) > 12.5f && react != ANGRY && react != GROGGY && react != DIZZY) { turn = 0; tickled = true; fond(-0.03f); setMood(DIZZY, pick(DIZZYL, 3), 3500); }   /* two full circles */
     if (abs(dx) >= 3) { if (lastDx && (dx > 0) != (lastDx > 0)) reversals++; lastDx = dx; }
     if (dragDist > 60 && react != LOVE && (reversals >= 2 || dragDist > 0.25f * (millis() - downAt))) { tickled = true; onTickle(); }   // quick or back-and-forth: a tickle
     gazeX.to(constrain((x - W / 2) * 0.12f, -14.f, 14.f)); gazeY.to(constrain((y - (H / 2 - 28)) * 0.1f, -8.f, 8.f));
@@ -410,6 +476,33 @@ struct FaceScreen : Screen {
   void onTap(int x, int y) override { onTapFace(x, y); }
   void onUp(int x, int y) override { touching = false; }
 } faceScreen;
+// Screensaver: on USB power Robo takes over the dimmed screen when the display would have slept. Any touch ends it.
+void ambientStart() {
+  ambient = true; ambientPushed = current() != &faceScreen; topDirty = true;
+  if (ambientPushed) pushScreen(&faceScreen); else { react = IDLE; caption = ""; }
+  lcd.setBrightness(max(6, cfg.bright / 4));
+}
+void ambientEnd() {
+  if (!ambient) return;
+  ambient = false; topDirty = true; lcd.setBrightness(cfg.bright); lastActivity = millis();
+  if (ambientPushed && current() == &faceScreen) popScreen();
+}
+// Runs on every screen: when the focus timer ends, Robo comes to the front and celebrates.
+void focusLoop() {
+  if (!focusEnd || (int32_t)(millis() - focusEnd) < 0) return;
+  focusStop(); displayWake(); if (ambient) { ambient = false; lcd.setBrightness(cfg.bright); }
+  if (current() != &faceScreen) pushScreen(&faceScreen);
+  fond(0.05f); snprintf(dyn, sizeof dyn, "Done! %d minutes. Nice work.", focusMin); setMood(EXCITED, dyn, 6000);
+}
+// Serial `m 9x` test hooks.
+void spinTest();
+void debug(int v) {
+  if (v == 99) spinTest(); else if (v == 98) ampTest();
+  else if (v == 97) Serial.printf("soul: aff %.2f energy %.2f bored %.2f away %.1f h ambient %d focus %d\n", soul.aff, soul.energy, soul.bored, awayH, ambient, focusEnd ? (int)((focusEnd - millis()) / 1000) : 0);
+  else if (v == 96) { focusMin = 25; focusEnd = millis() + 8000; focusHalf = true; topDirty = true; }
+  else if (v == 95) soul.aff = 0.1f; else if (v == 94) soul.aff = 0.9f; else if (v == 91) soul.aff = 0.5f;
+  else if (v == 93) ambientStart(); else if (v == 92) ambientEnd();
+}
 // Serial `m 99`: draw three circles on the face with a pretend finger.
 void spinTest() { faceScreen.onDown(200, 110); float px = 200, py = 110; for (int i = 1; i <= 90; i++) { float a = i * 0.21f, x = 160 + cosf(a) * 40, y = 110 + sinf(a) * 40; faceScreen.onMove((int)x, (int)y, (int)(x - px), (int)(y - py)); px = (int)x; py = (int)y; } faceScreen.onUp(0, 0); }
 } // namespace face
