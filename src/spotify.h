@@ -14,7 +14,7 @@ struct SpState {
   uint8_t *art = nullptr; size_t artLen = 0; String artLoaded; volatile bool artNew = false;
   // pending command
   String cmd; int cmdArg = 0; volatile bool pending = false;   // pending: a command was sent, state not yet confirmed
-  uint32_t lastPoll = 0; bool wantPolling = false;
+  uint32_t lastPoll = 0, pollMs = 2000; bool wantPolling = false;   // pollMs: Robo polls slower than the Spotify screen
 } sp;
 
 void spLoad() {
@@ -84,10 +84,10 @@ int spRequest(const char *method, const String &url, String &out, const String &
   if (payload.length()) http.addHeader("Content-Type", "application/json");
   else if (strcmp(method, "GET") != 0) http.addHeader("Content-Length", "0"); // Spotify answers 411 without it
   int code = http.sendRequest(method, (uint8_t *)payload.c_str(), payload.length());
-  if (code > 0 && !spReadBody(http, out)) code = HTTPC_ERROR_READ_TIMEOUT;
+  if (code > 0 && code != 204 && !spReadBody(http, out)) code = HTTPC_ERROR_READ_TIMEOUT;   // 204 (nothing playing) has no body to wait for
   http.end();
   if (code == 401) { sp.access = ""; }
-  if (code < 0) { apiClient->stop(); delete apiClient; apiClient = nullptr; }   // drop a broken keep-alive socket
+  if (code < 0) apiClient->stop();   // drop a broken keep-alive socket; the object stays, apiHttp still points at it
   Serial.printf("sp: %s %s -> %d in %lu ms\n", method, url.c_str() + 23, code, (unsigned long)(millis() - t0));
   return code;
 }
@@ -148,7 +148,7 @@ void spTask(void *) {
       xSemaphoreTake(netMutex, portMAX_DELAY); sp.busy = true;
       spRunCommand(); if (spPoll()) spFetchArt(); sp.pending = false; sp.lastPoll = millis();
       sp.busy = false; xSemaphoreGive(netMutex);
-    } else if (linked && sp.wantPolling && millis() - sp.lastPoll > 2000) {
+    } else if (linked && sp.wantPolling && millis() - sp.lastPoll > sp.pollMs) {
       xSemaphoreTake(netMutex, portMAX_DELAY); sp.busy = true;
       bool ok = spPoll(); if (ok) spFetchArt();
       static int fails = 0; fails = ok ? 0 : fails + 1;

@@ -9,7 +9,7 @@ struct SpotifyScreen : Screen {
   uint32_t last = 0; int pressed = -1; bool dragVol = false; int localVol = -1; uint32_t volSentAt = 0;
   static const uint16_t GREEN() { return rgb(30, 215, 96); }
   const char *name() override { return "Spotify"; }
-  void enter() override { sp.wantPolling = true; spKick(); }
+  void enter() override { sp.pollMs = 2000; sp.wantPolling = true; spKick(); }
   void leave() override { sp.wantPolling = false; }
 
   void ellipsize(String &s, const lgfx::IFont *f, int maxw) { frame.setFont(f); if (frame.textWidth(s) <= maxw) return; while (s.length() > 1 && frame.textWidth(s + "...") > maxw) s.remove(s.length() - 1); s += "..."; }

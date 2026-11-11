@@ -3,6 +3,7 @@
 #include <Wire.h>
 #include <driver/i2s.h>
 #include "ui.h"
+#include "spotify.h"
 
 extern uint32_t lastActivity; extern bool asleep;   // main.cpp: last touch, display asleep
 namespace face {
@@ -14,10 +15,10 @@ float dtk = 1.0f;
 
 // One row per expression: eye openness (left, right), top lid drop at the inner and outer corner (0..1 of the eye),
 // eye scale, mouth curve (-1 frown .. 1 smile), mouth "o", eye shape, colour, LED. updateAnim() eases towards the row.
-enum Mood { IDLE, HAPPY, WINK_L, WINK_R, SURPRISED, ANGRY, STARTLED, SLEEPY, ASLEEP, GROGGY, SAD, LOVE, MOOD_N };
+enum Mood { IDLE, HAPPY, WINK_L, WINK_R, SURPRISED, ANGRY, STARTLED, SLEEPY, ASLEEP, GROGGY, SAD, LOVE, EXCITED, DANCE, COLD, HOT, RAIN, MOOD_N };
 enum Shape { S_RECT, S_ARC, S_HEART, S_SHUT };
 struct Expr { float oL, oR, lidIn, lidOut, scale, curve, o; Shape shape; uint16_t col; uint8_t r, g, b; };
-static const uint16_t PINK = lcd.color565(255, 96, 150), SAD_BLUE = lcd.color565(70, 130, 220), Z_DIM = lcd.color565(60, 90, 130);
+static const uint16_t PINK = lcd.color565(255, 96, 150), SAD_BLUE = lcd.color565(70, 130, 220), Z_DIM = lcd.color565(60, 90, 130), ICE = lcd.color565(170, 215, 255);
 static const Expr EXPR[MOOD_N] = {
   /* IDLE      */ {1, 1, 0, 0, 1, 1, 0, S_RECT, EYE_BLUE, 0, 10, 40},
   /* HAPPY     */ {1, 1, 0, 0, 1, 1, 0, S_ARC, MINT, 0, 40, 20},
@@ -31,6 +32,11 @@ static const Expr EXPR[MOOD_N] = {
   /* GROGGY    */ {0.55f, 0.8f, 0.5f, 0.5f, 1, 0, 0, S_RECT, EYE_BLUE, 0, 4, 16},
   /* SAD       */ {0.9f, 0.9f, 0, 0.45f, 1, -1, 0, S_RECT, SAD_BLUE, 8, 0, 30},
   /* LOVE      */ {1, 1, 0, 0, 1, 1, 0, S_HEART, PINK, 50, 6, 20},
+  /* EXCITED   */ {1, 1, 0, 0, 1.12f, 1, 0, S_RECT, EYE_BLUE, 0, 50, 30},
+  /* DANCE     */ {1, 1, 0, 0, 1, 1, 0, S_RECT, MINT, 30, 0, 40},
+  /* COLD      */ {0.9f, 0.9f, 0, 0, 0.94f, 0, 0, S_RECT, ICE, 10, 20, 40},
+  /* HOT       */ {0.9f, 0.9f, 0.12f, 0.12f, 1, 0, 0.7f, S_RECT, EYE_BLUE, 40, 15, 0},
+  /* RAIN      */ {1, 1, 0, 0, 1, 0, 0, S_RECT, EYE_BLUE, 0, 10, 40},
 };
 // `react` is a timed reaction; when it runs out the face falls back to the base mood (idle, sleepy, asleep or sad). `mood` is what is drawn.
 Mood mood = IDLE, react = IDLE, lastBase = IDLE; uint32_t reactUntil = 0; const char *caption = ""; uint32_t captionStart = 0, captionUntil = 0;
@@ -40,7 +46,8 @@ Anim openL{1, 1}, openR{1, 1}, gazeX{0, 0}, gazeY{0, 0}, mouthCurve{1, 1}, mouth
 uint32_t nextBlink = 0; int blinkPhase = 0; uint32_t blinkT = 0;
 uint32_t nextLook = 0; float lookX = 0, lookY = 0; uint32_t nextYawn = 0, yawnUntil = 0, nextSigh = 0, lastNoise = 0;
 bool touching = false, tickled = false; float dragDist = 0; int reversals = 0, lastDx = 0; uint32_t downAt = 0; uint32_t pokeTimes[8]; int pokeIdx = 0;
-bool micOk = false; float micAvg = 200;
+bool micOk = false; float micAvg = 200, beat = 1;   // beat: how hard the dance bounces, from the mic level
+char dyn[64]; String lastTitle; uint32_t nextRemark = 0; bool prevUsb = false, prevFull = false; int lastHour = -1;
 
 bool esWrite(uint8_t reg, uint8_t val) { Wire.beginTransmission(ES8311_ADDR); Wire.write(reg); Wire.write(val); return Wire.endTransmission() == 0; }
 bool micInit() {
@@ -128,6 +135,19 @@ void drawFace() {
     float p = fmodf(millis() / 2700.0f + i / 3.0f, 1.0f);
     text((int)(cx + 72 + p * 24 + sinf(p * 6.28f) * 3), (int)(cy - 22 - p * 30), "z", (p < 0.15f || p > 0.8f) ? Z_DIM : TEXT_BLUE, p > 0.5f ? F16 : F12, textdatum_t::middle_center);
   }
+  uint32_t ms = millis();
+  if (mood == EXCITED && openL.v > 0.7f) for (int side = -1; side <= 1; side += 2) {   // sparkles in the eyes
+    float ex = cx + side * gap / 2; frame.fillSmoothCircle((int)(ex + eyeW * 0.18f), (int)(cy - eyeH * 0.2f), 5, EYE_WHITE); frame.fillSmoothCircle((int)(ex - eyeW * 0.14f), (int)(cy + eyeH * 0.14f), 2, EYE_WHITE);
+  }
+  if (mood == DANCE) for (int i = 0; i < 2; i++) {   // a note drifting up on each side
+    float p = fmodf(ms / 2400.0f + i * 0.5f, 1.0f); int x = (int)(W / 2 + (i ? 112 : -120) + sinf(p * 6.28f) * 4), y = (int)(FACE_Y + 96 - p * 60); uint16_t c = (p < 0.12f || p > 0.85f) ? Z_DIM : MINT;
+    frame.fillSmoothCircle(x, y, 4, c); frame.fillRect(x + 2, y - 14, 2, 14, c); frame.fillRect(x + 2, y - 14, 8, 3, c);
+  }
+  if (mood == HOT) {   // a sweat drop sliding down beside the right eye
+    float p = fmodf(ms / 1500.0f, 1.0f); int x = (int)(cx + gap / 2 + eyeW / 2 + 12), y = (int)(cy - 22 + p * 26);
+    frame.fillSmoothCircle(x, y, 5, TEXT_BLUE); frame.fillTriangle(x - 5, y - 1, x + 5, y - 1, x, y - 12, TEXT_BLUE);
+  }
+  if (mood == RAIN) for (int i = 0; i < 10; i++) { int x = 24 + i * 30 + (i * 7) % 11, y = FACE_Y + 2 + (int)fmodf(ms * 0.07f + i * 13, 22); frame.drawLine(x, y, x - 3, y + 8, TEXT_BLUE); frame.drawLine(x + 1, y, x - 2, y + 8, TEXT_BLUE); }
   flushRows(FACE_Y, FACE_H);
   static const char *lastCap = nullptr; static size_t lastLen = 0; static Mood lastMood = IDLE;
   size_t shown = caption[0] ? min(strlen(caption), (size_t)((millis() - captionStart) / 35 + 1)) : 0;
@@ -146,7 +166,44 @@ const char *STARTLE[] = {"What was that?!", "Whoa! Loud!", "Did you hear that?"}
 const char *WAKE[] = {"Mm... five more minutes.", "Huh? I was dreaming.", "Oh. I dozed off."};
 const char *LOVEL[] = {"Aww, that's nice.", "I like you too.", "More pets, please."};
 const char *LOWBAT[] = {"I'm running low...", "Feeling a bit drained.", "Could use a charge."};
+const char *PLUG[] = {"Yum, power!", "Ahh, that's the stuff.", "Charging. Thank you!"};
+const char *FULL[] = {"All charged up!", "I'm full. 100%."};
 const char *NOWIFI[] = {"I lost the Wi-Fi...", "Where did the internet go?"};
+
+bool clockNow(struct tm &tm) { time_t t = time(nullptr); localtime_r(&t, &tm); return tm.tm_year > 120; }
+bool dancing() { return sp.linked && sp.have && sp.playing; }
+const char *greeting() {
+  struct tm tm; if (!clockNow(tm) || random(3) == 0) return pick(HELLO, 4);
+  int h = tm.tm_hour; return h >= 5 && h < 12 ? "Good morning!" : h < 17 ? "Good afternoon!" : h < 23 ? "Good evening." : "It's late. Still up?";
+}
+// Something to say about the weather; the notable kinds also get a face.
+void weatherRemark() {
+  if (!wx.ok) return;
+  int c = wx.code, t = (int)lroundf(toUnit(wx.temp)); bool rain = (c >= 51 && c <= 67) || (c >= 80 && c <= 82) || c >= 95;
+  if (rain) { snprintf(dyn, sizeof dyn, c >= 95 ? "Thunder out there. Yikes." : "Sounds like rain outside."); setMood(RAIN, dyn, 4500); }
+  else if (wx.temp <= 12) { snprintf(dyn, sizeof dyn, "Brr. %d\xC2\xB0 outside.", t); setMood(COLD, dyn, 4500); }
+  else if (wx.temp >= 32) { snprintf(dyn, sizeof dyn, "Phew. %d\xC2\xB0 out there.", t); setMood(HOT, dyn, 4500); }
+  else { snprintf(dyn, sizeof dyn, "%s, %d\xC2\xB0 outside.", wxText(c), t); say(dyn, 4000); }
+}
+// Things that happen around Robo while it is open: power, the clock, the weather, music.
+void events() {
+  uint32_t now = millis(); bool awake = mood != ASLEEP && react != ANGRY;
+  if (bat.usb != prevUsb) {
+    prevUsb = bat.usb;
+    if (bat.usb) setMood(EXCITED, pick(PLUG, 3), 3000);
+    else if (bat.present) { snprintf(dyn, sizeof dyn, "Unplugged. %d%% left.", bat.pct); setMood(SURPRISED, dyn, 3000); }
+  }
+  if (bat.full != prevFull) { prevFull = bat.full; if (bat.full) setMood(HAPPY, pick(FULL, 2), 3000); }
+  struct tm tm;
+  if (clockNow(tm) && tm.tm_hour != lastHour) {
+    bool first = lastHour < 0; lastHour = tm.tm_hour;
+    if (!first && awake && tm.tm_min == 0) { snprintf(dyn, sizeof dyn, "It's %d o'clock.", (tm.tm_hour + 11) % 12 + 1); setMood(SURPRISED, dyn, 3000); }
+  }
+  if (dancing()) {
+    if (sp.title != lastTitle && awake && react == IDLE) { lastTitle = sp.title; snprintf(dyn, sizeof dyn, "%.34s - %.20s", sp.title.c_str(), sp.artist.c_str()); say(dyn, 6000); }
+  } else lastTitle = "";
+  if (mood == IDLE && !caption[0] && now > nextRemark) { nextRemark = now + (wx.ok ? random(45000, 80000) : 10000); weatherRemark(); }
+}
 
 void onTapFace(int x, int y) {
   if (mood == ANGRY || mood == GROGGY) return;
@@ -171,7 +228,7 @@ Mood baseMood() {
   if (tm.tm_year > 120 && (tm.tm_hour >= 23 || tm.tm_hour < 6) && nap > 120000UL) nap = 120000UL;   // late at night it tires sooner
   if (idle > nap / 5 * 4) return ASLEEP;
   if (idle > nap / 2) return SLEEPY;
-  return sadWhy() ? SAD : IDLE;
+  return sadWhy() ? SAD : dancing() ? DANCE : IDLE;
 }
 
 void updateAnim() {
@@ -207,11 +264,12 @@ void updateAnim() {
       else { lookX = random(-6, 7) * (slow ? 0.5f : 1); lookY = random(-3, 4); nextLook = now + random(1200, 3800) * (slow ? 2 : 1); }
     }
     float breath = mood == ASLEEP ? sinf(now / 720.0f) * 3 : sinf(now / 480.0f) * 1.5f;
-    gazeX.to(lookX); gazeY.to(lookY + breath + (mood == SAD ? 5 : 0));
+    if (mood == DANCE) { gazeX.to(sinf(now / 500.0f * 3.1416f) * 7); gazeY.to(2 - fabsf(sinf(now / 500.0f * 3.1416f)) * 7 * beat); }   // sway and bounce at about 120 a minute
+    else gazeX.to(lookX + (mood == COLD ? ((now / 45) & 1 ? 2.5f : -2.5f) : 0)), gazeY.to(lookY + breath + (mood == SAD ? 5 : mood == RAIN ? -8 : 0));
   }
   openL.to(oL); openR.to(oR); mouthCurve.to(e.curve); mouthO.to(o); eyeScale.to(e.scale); lidIn.to(e.lidIn); lidOut.to(e.lidOut);
   openL.step(0.35f); openR.step(0.35f); mouthCurve.step(0.2f); mouthO.step(0.3f); eyeScale.step(0.2f); lidIn.step(0.2f); lidOut.step(0.2f);
-  gazeX.step(touching ? 0.15f : 0.3f); gazeY.step(touching ? 0.15f : 0.3f);
+  float gk = touching ? 0.15f : (mood == DANCE || mood == COLD) ? 0.5f : 0.3f; gazeX.step(gk); gazeY.step(gk);
 }
 
 struct FaceScreen : Screen {
@@ -219,20 +277,23 @@ struct FaceScreen : Screen {
   const char *name() override { return "Robo"; }
   bool titleBack() override { return false; }
   void render() override { frame.fillScreen(BG); }
-  void enter() override { nextBlink = millis() + 800; lastBase = IDLE; lastNoise = 0; setMood(SURPRISED, pick(HELLO, 4), 2200); lastFrame = millis(); touching = false; }
-  void leave() override { neopixelWrite(PIN_LED, 0, 0, 0); ledShown = -1; }
+  void enter() override { nextBlink = millis() + 800; lastBase = IDLE; lastNoise = 0; setMood(SURPRISED, greeting(), 2200);
+    prevUsb = bat.usb; prevFull = bat.full; lastHour = -1; lastTitle = ""; nextRemark = millis() + 9000;
+    sp.pollMs = 10000; sp.wantPolling = true; /* a slow poll is enough to know whether music is playing */ lastFrame = millis(); touching = false; }
+  void leave() override { neopixelWrite(PIN_LED, 0, 0, 0); ledShown = -1; sp.wantPolling = false; }
   void tick() override {
     uint32_t now = millis();
     if (micOk) {
       int p = micPeak();
-      if (p > micAvg * 6 + 1500 && react == IDLE) { setMood(STARTLED, pick(STARTLE, 3), 2000); lastNoise = now; }   // a loud noise also wakes it
+      beat += ((p > micAvg * 1.5f ? 1.4f : 0.7f) - beat) * 0.3f;
+      if (p > micAvg * 6 + 1500 && react == IDLE && !dancing()) { setMood(STARTLED, pick(STARTLE, 3), 2000); lastNoise = now; }   // a loud noise also wakes it
       micAvg += (p - micAvg) * 0.02f;
     }
     if (touching && !tickled && react != ANGRY && react != GROGGY && now - downAt > 700) {   // a long press or a slow stroke: petting
       if (react != LOVE) setMood(LOVE, pick(LOVEL, 3), 1500); else reactUntil = captionUntil = now + 1500;
     }
     if (asleep) { led(ASLEEP); delay(30); return; }   // the panel is off: nothing to draw
-    updateAnim(); drawFace(); led(mood);
+    events(); updateAnim(); drawFace(); led(mood);
     now = millis(); dtk = (now - lastFrame) / 33.0f; lastFrame = now;
   }
   void onDown(int x, int y) override {
