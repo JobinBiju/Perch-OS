@@ -52,9 +52,22 @@ struct WeatherScreen : Screen {
       snprintf(b, sizeof b, "%d%%", wx.hum); piece(b, C.DIM, F12, 12);
       snprintf(b, sizeof b, "%d km/h", (int)wx.wind); piece(b, C.DIM, F12, 0);
     }
-    drawWeatherIcon(wx.code, 278, 81, 22);
+    drawWeatherIcon(wx.code, W - 42, portrait() ? 79 : 81, 22);
     // 5-day card: (12,140) 296x88 r12; equal columns, day on top, glyph in the middle, hi lo on the bottom
-    int n = wx.nDays; card(MARGIN, 140, W - 2 * MARGIN, 88, C.CARD, 12);
+    int n = wx.nDays;
+    if (portrait()) {   // portrait: 5-day list card (12,144) 216x164, 32 px rows with hairlines: day, glyph, hi lo
+      card(MARGIN, 144, W - 2 * MARGIN, n * 32 + 4, C.CARD, 12);
+      for (int i = 0; i < n; i++) {
+        int cy = 162 + i * 32;
+        text(MARGIN + 12, cy, i == 0 ? "Today" : wd[wx.days[i].wday], i == 0 ? C.TEXT : C.DIM, i == 0 ? F12M : F12, textdatum_t::middle_left);
+        drawWeatherIcon(wx.days[i].code, W / 2, cy - 3, 8);
+        char hi[8], lo[8]; snprintf(hi, sizeof hi, "%d", (int)roundf(toUnit(wx.days[i].hi))); snprintf(lo, sizeof lo, "%d", (int)roundf(toUnit(wx.days[i].lo)));
+        frame.setFont(F12); int lw = frame.textWidth(lo);
+        text(W - MARGIN - 12, cy, lo, C.DIM, F12, textdatum_t::middle_right); text(W - MARGIN - 12 - lw - 4, cy, hi, C.TEXT, F12M, textdatum_t::middle_right);
+        if (i + 1 < n) frame.drawFastHLine(MARGIN + 12, cy + 16, W - 2 * MARGIN - 24, C.CARD2);
+      }
+      n = 0;
+    } else card(MARGIN, 140, W - 2 * MARGIN, 88, C.CARD, 12);
     for (int i = 0; i < n; i++) {
       int cx = 16 + (288 * i + 144) / n;
       text(cx, 155, i == 0 ? "Today" : wd[wx.days[i].wday], i == 0 ? C.TEXT : C.DIM, i == 0 ? F12M : F12, textdatum_t::middle_center);

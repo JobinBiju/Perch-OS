@@ -3,8 +3,15 @@
 #include "ui.h"
 
 struct Keyboard {
-  static constexpr int KH = 28, GAP = 2, ROWS = 4;
-  static constexpr int Y0 = 116, CELL = 30, MOD_W = 42;
+  static constexpr int GAP = 2, ROWS = 4;
+  // landscape: 28 px keys on a 30 px pitch, rows from y116; portrait: 21x32 keys on a 23 px pitch, rows at 184 / 218 / 252 / 286
+  static int KH() { return portrait() ? 32 : 28; } static int CELL() { return portrait() ? 23 : 30; } static int MOD_W() { return portrait() ? 31 : 42; }
+  static int Y0() { return H - ROWS * (KH() + GAP) - (portrait() ? 0 : 4); }
+  struct BKey { int x, w; };
+  static const BKey *bottom() {   // 123, comma, space, full stop, Done
+    static const BKey L[5] = {{11, 42}, {55, 28}, {85, 150}, {237, 28}, {267, 42}}, P[5] = {{6, 38}, {46, 21}, {69, 96}, {167, 21}, {190, 44}};
+    return portrait() ? P : L;
+  }
   bool visible = false, shift = false, sym = false;
   String *target = nullptr; bool password = false;
   std::function<void()> onDone, onChange;
@@ -21,21 +28,21 @@ struct Keyboard {
 
   // key geometry: returns x,w for key i of n in a row, using a full-width cell of 32 px
   void keyRect(int row, int i, int n, int &x, int &w) {
-    int total = n * CELL - GAP; int x0 = (W - total) / 2;
-    x = x0 + i * CELL; w = CELL - GAP;
+    int total = n * CELL() - GAP; int x0 = (W - total) / 2;
+    x = x0 + i * CELL(); w = CELL() - GAP;
   }
   void drawKey(int x, int y, int w, const char *label, uint16_t bg, uint16_t fg, bool big = false) {
-    frame.fillSmoothRoundRect(x, y, w, KH, 6, bg);
-    text(x + w / 2, y + KH / 2, label, fg, big ? (const lgfx::IFont *)F16 : (const lgfx::IFont *)F12, textdatum_t::middle_center);
+    frame.fillSmoothRoundRect(x, y, w, KH(), 6, bg);
+    text(x + w / 2, y + KH() / 2, label, fg, big ? (const lgfx::IFont *)F16 : (const lgfx::IFont *)F12, textdatum_t::middle_center);
   }
   void draw() {
     if (!visible) return;
-    frame.fillRect(0, Y0 - 4, W, H - Y0 + 4, C.KEYDARK);
+    frame.fillRect(0, Y0() - 4, W, H - Y0() + 4, C.KEYDARK);
     uint16_t key = C.KEY, act = C.DIM;
     char lbl[2] = {0, 0};
     const char *rows[3] = {row0(), row1(), row2()};
     for (int r = 0; r < 3; r++) {
-      int y = Y0 + r * (KH + GAP); int n = strlen(rows[r]); int x, w;
+      int y = Y0() + r * (KH() + GAP); int n = strlen(rows[r]); int x, w;
       for (int i = 0; i < n; i++) {
         keyRect(r, i, n, x, w);
         char ch = rows[r][i]; if (shift && !sym) ch = toupper(ch);
@@ -45,40 +52,38 @@ struct Keyboard {
       }
       if (r == 2) { // shift and backspace on the sides
         keyRect(2, 0, n, x, w);
-        int sx = x - MOD_W - 4, bx = x + n * CELL + 2;
-        if (sx < 2) sx = 2; if (bx + MOD_W > W - 10) bx = W - 10 - MOD_W;
-        int cx = sx + 21, cy = y + KH / 2;
+        int sx = x - MOD_W() - 4, bx = x + n * CELL() + 2;
+        if (sx < 2) sx = 2; if (bx + MOD_W() > W - 4) bx = W - 4 - MOD_W();
+        int cx = sx + MOD_W() / 2, cy = y + KH() / 2;
         if (!sym) { // shift key (letters only)
-          frame.fillSmoothRoundRect(sx, y, MOD_W, KH, 6, shift ? C.TEXT : act);
+          frame.fillSmoothRoundRect(sx, y, MOD_W(), KH(), 6, shift ? C.TEXT : act);
           uint16_t fg = shift ? C.KEYDARK : C.TEXT;
           frame.fillTriangle(cx, cy - 7, cx - 7, cy + 1, cx + 7, cy + 1, fg); frame.fillRect(cx - 3, cy + 1, 6, 6, fg);
         }
-        frame.fillSmoothRoundRect(bx, y, MOD_W, KH, 6, act);
+        frame.fillSmoothRoundRect(bx, y, MOD_W(), KH(), 6, act);
         // backspace glyph
-        cx = bx + 21; cy = y + KH / 2;
+        cx = bx + MOD_W() / 2; cy = y + KH() / 2;
         frame.fillTriangle(cx - 9, cy, cx - 3, cy - 6, cx - 3, cy + 6, C.TEXT); frame.fillRect(cx - 3, cy - 6, 12, 13, C.TEXT);
         frame.drawLine(cx, cy - 3, cx + 6, cy + 3, C.KEY); frame.drawLine(cx, cy + 3, cx + 6, cy - 3, C.KEY);
       }
     }
     // bottom row: 123 | , | space | . | Done
-    int y = Y0 + 3 * (KH + GAP);
-    drawKey(11, y, 42, sym ? "ABC" : "123", act, C.TEXT);
-    drawKey(55, y, 28, ",", key, C.TEXT, true);
-    drawKey(85, y, 150, "space", key, C.TEXT);
-    drawKey(237, y, 28, ".", key, C.TEXT, true);
-    frame.fillSmoothRoundRect(267, y, 42, KH, 6, C.ACCENT); text(288, y + KH / 2, "Done", C.WHITE, F12M, textdatum_t::middle_center);
+    int y = Y0() + 3 * (KH() + GAP);
+    const BKey *b = bottom();
+    drawKey(b[0].x, y, b[0].w, sym ? "ABC" : "123", act, C.TEXT);
+    drawKey(b[1].x, y, b[1].w, ",", key, C.TEXT, true);
+    drawKey(b[2].x, y, b[2].w, "space", key, C.TEXT);
+    drawKey(b[3].x, y, b[3].w, ".", key, C.TEXT, true);
+    frame.fillSmoothRoundRect(b[4].x, y, b[4].w, KH(), 6, C.ACCENT); text(b[4].x + b[4].w / 2, y + KH() / 2, "Done", C.WHITE, F12M, textdatum_t::middle_center);
   }
   // returns true if the tap was on the keyboard
   bool tap(int x, int y) {
-    if (!visible || y < Y0 - 4) return false;
-    int r = (y - Y0) / (KH + GAP); if (r < 0) r = 0; if (r > 3) r = 3;
-    int ry = Y0 + r * (KH + GAP);
+    if (!visible || y < Y0() - 4) return false;
+    int r = (y - Y0()) / (KH() + GAP); if (r < 0) r = 0; if (r > 3) r = 3;
+    int ry = Y0() + r * (KH() + GAP);
     if (r == 3) {
-      if (hit(x, y, 9, ry, 44, KH)) { sym = !sym; shift = false; }
-      else if (hit(x, y, 54, ry, 30, KH)) type(',');
-      else if (hit(x, y, 84, ry, 152, KH)) type(' ');
-      else if (hit(x, y, 236, ry, 30, KH)) type('.');
-      else if (hit(x, y, 266, ry, 44, KH)) { if (onDone) onDone(); }
+      const BKey *b = bottom(); int k = -1; for (int i = 0; i < 5; i++) if (hit(x, y, b[i].x - 1, ry, b[i].w + 2, KH())) k = i;
+      if (k == 0) { sym = !sym; shift = false; } else if (k == 1) type(','); else if (k == 2) type(' '); else if (k == 3) type('.'); else if (k == 4) { if (onDone) onDone(); }
       return true;
     }
     const char *rows[3] = {row0(), row1(), row2()}; int n = strlen(rows[r]); int kx, kw;

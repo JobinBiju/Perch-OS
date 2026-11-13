@@ -164,9 +164,9 @@ void bookLayoutGeometry() {
   frame.setFont(bookFont(book.fontIdx));
   static const int gap[3][3] = {{1, 4, 10}, {3, 6, 12}, {3, 6, 12}};   // [text size][line spacing] px between lines
   book.lineH = frame.fontHeight() + gap[book.fontIdx][book.lineSp];
-  book.textY = 30; book.lines = (218 - book.textY) / book.lineH;
+  book.textY = 30; book.textX = MARGIN; book.textW = W - 2 * MARGIN; book.lines = (H - 22 - book.textY) / book.lineH;   // the page follows the screen shape
   const char *t; int l; book.headH = book.ch < 0 ? 0 : (bookChapterNum(book.ch, t, l) ? 20 : 0) + 24 + 8;   // "CHAPTER n" line, RD20 title, 8 px gap
-  book.lines0 = (218 - book.textY - book.headH) / book.lineH;
+  book.lines0 = (H - 22 - book.textY - book.headH) / book.lineH;
 }
 // lay out the current chapter: lines[] for the whole chapter, pages[] = index of each page's first line
 void bookPaginate() {
@@ -321,10 +321,10 @@ bool bookDelete(const String &file) {
 }
 
 // segmented control: a pill with three equal segments, the selected one filled blue
-void segmented(int x, int y, int w, const char *const lab[3], int on, int pressed = -1) {
-  card(x, y, w, 24, C.CARD, 12);
+void segmented(int x, int y, int w, const char *const lab[3], int on, int pressed = -1, bool onCard = false) {   // onCard: the control sits on a card, so its track is one step lighter
+  card(x, y, w, 24, onCard ? C.CARD2 : C.CARD, 12);
   for (int i = 0; i < 3; i++) { int sx = x + i * w / 3, sw = (i + 1) * w / 3 - i * w / 3;
-    if (on == i) frame.fillSmoothRoundRect(sx, y, sw, 24, 12, C.ACCENT); else if (pressed == i) frame.fillSmoothRoundRect(sx, y, sw, 24, 12, C.CARD2);
+    if (on == i) frame.fillSmoothRoundRect(sx, y, sw, 24, 12, C.ACCENT); else if (pressed == i) frame.fillSmoothRoundRect(sx, y, sw, 24, 12, onCard ? C.LINE : C.CARD2);
     text(sx + sw / 2, y + 12, lab[i], on == i ? C.WHITE : C.DIM, F12M, textdatum_t::middle_center); }
 }
 int segmentAt(int x, int y, int sx, int sy, int w) { return hit(x, y, sx - 4, sy - 4, w + 8, 32) ? constrain((x - sx) * 3 / w, 0, 2) : -1; }
@@ -332,7 +332,8 @@ static const char *const SIZE_LAB[3] = {"Small", "Medium", "Large"}, *const LINE
 
 // ---- chapters: text-size control on top, then the chapter list in one card; long titles wrap to two lines ----
 struct ChapterScreen : Screen {
-  static constexpr int LIST_Y = 84, ROW1 = 30, ROW2 = 44, TX = MARGIN + 12, TW = W - 2 * MARGIN - 24;
+  static constexpr int LIST_Y = 84, ROW1 = 30, ROW2 = 44, TX = MARGIN + 12;
+  static int TW() { return W - 2 * MARGIN - 24; }
   int scroll = 0, pressed = -1, segPressed = -1; uint16_t top[Book::MAXCH + 1]; uint8_t twoLine[Book::MAXCH]; int total = 0;
   const char *name() override { return "Chapters"; }
   // part headings ("Part I ...", or all caps) are shown dim, in capitals, with a dot after the numeral
@@ -351,11 +352,11 @@ struct ChapterScreen : Screen {
   // split a title at a space so the first line fits; the second line is cut to fit (returns the number of lines)
   int split(int i, char *l1, char *l2) {
     char t[128]; int n = title(i, t); frame.setFont(rowFont(i));
-    if (frame.textWidth(t) <= TW) { strcpy(l1, t); l2[0] = 0; return 1; }
-    int cut = 0; for (int k = 1; k < n; k++) if (t[k] == ' ') { char c = t[k]; t[k] = 0; bool fits = frame.textWidth(t) <= TW; t[k] = c; if (fits) cut = k; else break; }
-    if (!cut) { cut = n; while (cut > 1) { t[cut] = 0; if (frame.textWidth(t) <= TW) break; cut--; } title(i, t); }
+    if (frame.textWidth(t) <= TW()) { strcpy(l1, t); l2[0] = 0; return 1; }
+    int cut = 0; for (int k = 1; k < n; k++) if (t[k] == ' ') { char c = t[k]; t[k] = 0; bool fits = frame.textWidth(t) <= TW(); t[k] = c; if (fits) cut = k; else break; }
+    if (!cut) { cut = n; while (cut > 1) { t[cut] = 0; if (frame.textWidth(t) <= TW()) break; cut--; } title(i, t); }
     memcpy(l1, t, cut); l1[cut] = 0; int s = cut; while (t[s] == ' ') s++; strcpy(l2, t + s);
-    int m = strlen(l2); while (m > 1 && frame.textWidth(l2) > TW) l2[--m] = 0;
+    int m = strlen(l2); while (m > 1 && frame.textWidth(l2) > TW()) l2[--m] = 0;
     return 2;
   }
   void enter() override {
@@ -377,7 +378,7 @@ struct ChapterScreen : Screen {
       if (cur) frame.fillSmoothRoundRect(MARGIN + 4, y + 8, 3, h - 16, 2, C.ACCENT);
       if (n == 1) text(TX, y + h / 2, l1, col, f, textdatum_t::middle_left);
       else { text(TX, y + 15, l1, col, f, textdatum_t::middle_left); text(TX, y + 29, l2, col, f, textdatum_t::middle_left); }
-      if (i + 1 < book.nch) frame.drawFastHLine(TX, y + h - 1, TW, C.CARD2);
+      if (i + 1 < book.nch) frame.drawFastHLine(TX, y + h - 1, TW(), C.CARD2);
     }
     frame.clearClipRect();
     frame.fillRect(0, 0, W, LIST_Y, C.BG); drawStatusBar(); drawTitle("Chapters");
@@ -395,11 +396,50 @@ struct ChapterScreen : Screen {
 
 // ---- reader menu: title, author · chapter, text size and line spacing, continue / chapters ----
 struct ReaderMenuScreen : Screen {
-  static constexpr int COV_Y = 56, HEAD_X = MARGIN + COV_W + 12, SEG_X = 60, SEG_W = W - MARGIN - SEG_X, SEG1_Y = 120, SEG2_Y = 152, BTN_Y = 200, BTN1_W = 172, BTN2_X = 192, BTN2_W = 116;   // the design: 172 + 8 + 116
+  static constexpr int COV_Y = 56, HEAD_X = MARGIN + COV_W + 12, SEG_X = 60, SEG1_Y = 120, SEG2_Y = 152;
+  // landscape: Continue (172) and Chapters (116) side by side at the bottom; portrait: stacked, full width
+  static int SEG_W() { return W - MARGIN - SEG_X; }
+  static int BTN_Y() { return portrait() ? H - 92 : H - 40; }
+  static int BTN1_W() { return portrait() ? W - 2 * MARGIN : 172; }
+  static int BTN2_X() { return portrait() ? MARGIN : 192; }
+  static int BTN2_Y() { return portrait() ? H - 48 : H - 40; }
+  static int BTN2_W() { return portrait() ? W - 2 * MARGIN : 116; }
   int pressed = -1; // 0..2 text size, 6..8 line spacing, 4 continue, 5 chapters
   const char *name() override { return "Reading"; }
+  // portrait: cover 48x72 with title, author and a progress bar beside it; both controls in one card (12,140) 216x72;
+  // a Chapters row (12,220) showing the current chapter; Continue (12,268) as the primary action
+  static constexpr int P_SEG_X = 58, P_SEG_W = 162, P_SEG1_Y = 148, P_SEG2_Y = 180, P_CH_Y = 220, P_GO_Y = 268;
+  void coverBig(int x, int y) {   // the 32x48 thumbnail at 1.5x, or initials on the title's colour
+    if (book.cover) {
+      for (int dy = 0; dy < 72; dy++) for (int dx = 0; dx < 48; dx++) { uint16_t c = book.cover[(dy * 2 / 3) * COV_W + dx * 2 / 3]; if (c != COV_KEY) frame.drawPixel(x + dx, y + dy, c); }
+      frame.drawRoundRect(x, y, 48, 72, 6, C.LINE);
+    } else { frame.fillSmoothRoundRect(x, y, 48, 72, 6, coverColor(book.title)); text(x + 24, y + 36, initials(book.title).c_str(), C.WHITE, F16B, textdatum_t::middle_center); }
+  }
+  void renderPortrait() {
+    coverBig(MARGIN, COV_Y);
+    const int tx = 72, tw = W - MARGIN - tx; String l1, l2; bool two = wrap2(book.title, F16B, tw, l1, l2) == 2;
+    text(tx, COV_Y + 9, l1.c_str(), C.TEXT, F16B, textdatum_t::middle_left);
+    if (two) text(tx, COV_Y + 27, l2.c_str(), C.TEXT, F16B, textdatum_t::middle_left);
+    String au = book.author; frame.setFont(F12); while (au.length() > 1 && frame.textWidth(au) > tw) au.remove(au.length() - 1);
+    text(tx, COV_Y + (two ? 46 : 30), au.c_str(), C.DIM, F12, textdatum_t::middle_left);
+    int pct = bookPercent(); frame.fillSmoothRoundRect(tx, COV_Y + 63, 118, 4, 2, C.LINE);
+    if (pct > 0) frame.fillSmoothRoundRect(tx, COV_Y + 63, max(4, 118 * pct / 100), 4, 2, C.ACCENT);
+    textf(W - MARGIN, COV_Y + 65, C.DIM, F12M, textdatum_t::middle_right, "%d%%", pct);
+    card(MARGIN, 140, W - 2 * MARGIN, 72, C.CARD, 12);
+    text(MARGIN + 10, P_SEG1_Y + 12, "Text", C.DIM, F12M, textdatum_t::middle_left); segmented(P_SEG_X, P_SEG1_Y, P_SEG_W, SIZE_LAB, book.fontIdx, pressed >= 0 && pressed < 3 ? pressed : -1, true);
+    text(MARGIN + 10, P_SEG2_Y + 12, "Lines", C.DIM, F12M, textdatum_t::middle_left); segmented(P_SEG_X, P_SEG2_Y, P_SEG_W, LINES_LAB, book.lineSp, pressed >= 6 ? pressed - 6 : -1, true);
+    card(MARGIN, P_CH_Y, W - 2 * MARGIN, 36, pressed == 5 ? C.CARD2 : C.CARD, 10);
+    text(MARGIN + 12, P_CH_Y + 18, "Chapters", C.TEXT, F16, textdatum_t::middle_left); chevron(CHEV_X, P_CH_Y + 18, C.DIM);
+    const char *ct; int cl; int num = bookChapterNum(book.ch, ct, cl);
+    char cur[64]; if (num) snprintf(cur, sizeof cur, "Chapter %d", num); else snprintf(cur, sizeof cur, "%.*s", min(cl, 60), ct);
+    frame.setFont(F12); int n = strlen(cur); while (n > 1 && frame.textWidth(cur) > 92) cur[--n] = 0;
+    text(CHEV_X - 12, P_CH_Y + 18, cur, C.DIM, F12, textdatum_t::middle_right);
+    card(MARGIN, P_GO_Y, W - 2 * MARGIN, 36, pressed == 4 ? C.CARD2 : C.ACCENT, 10);
+    text(W / 2, P_GO_Y + 18, "Continue reading", C.WHITE, F16B, textdatum_t::middle_center);
+  }
   void render() override {
     frame.fillScreen(C.BG); drawStatusBar(); drawTitle("Reading");
+    if (portrait()) { renderPortrait(); return; }
     drawCover(MARGIN, COV_Y, book.cover, book.title, C.BG);
     const int tw = W - MARGIN - HEAD_X;
     String l1, l2; bool two = wrap2(book.title, F16B, tw, l1, l2) == 2;   // one line: title and author centred on the cover; two: stacked from its top
@@ -409,17 +449,22 @@ struct ReaderMenuScreen : Screen {
     char sub[120]; if (num) snprintf(sub, sizeof sub, "%s \xC2\xB7 Chapter %d", book.author.c_str(), num); else snprintf(sub, sizeof sub, "%s \xC2\xB7 %.*s", book.author.c_str(), min(cl, 60), ct);
     frame.setFont(F12); int n = strlen(sub); while (n > 1 && frame.textWidth(sub) > tw) sub[--n] = 0;
     text(HEAD_X, COV_Y + (two ? 46 : 34), sub, C.DIM, F12, textdatum_t::middle_left);
-    text(MARGIN, SEG1_Y + 12, "Text", C.DIM, F12M, textdatum_t::middle_left); segmented(SEG_X, SEG1_Y, SEG_W, SIZE_LAB, book.fontIdx, pressed >= 0 && pressed < 3 ? pressed : -1);
-    text(MARGIN, SEG2_Y + 12, "Lines", C.DIM, F12M, textdatum_t::middle_left); segmented(SEG_X, SEG2_Y, SEG_W, LINES_LAB, book.lineSp, pressed >= 6 ? pressed - 6 : -1);
-    card(MARGIN, BTN_Y, BTN1_W, 36, pressed == 4 ? C.CARD2 : C.ACCENT, 10);
-    text(MARGIN + BTN1_W / 2, BTN_Y + 18, "Continue reading", C.WHITE, F16B, textdatum_t::middle_center);
-    card(BTN2_X, BTN_Y, BTN2_W, 36, pressed == 5 ? C.CARD2 : C.CARD, 10);
-    text(BTN2_X + 12, BTN_Y + 18, "Chapters", C.TEXT, F16, textdatum_t::middle_left); chevron(BTN2_X + BTN2_W - 16, BTN_Y + 18, C.DIM);
+    text(MARGIN, SEG1_Y + 12, "Text", C.DIM, F12M, textdatum_t::middle_left); segmented(SEG_X, SEG1_Y, SEG_W(), SIZE_LAB, book.fontIdx, pressed >= 0 && pressed < 3 ? pressed : -1);
+    text(MARGIN, SEG2_Y + 12, "Lines", C.DIM, F12M, textdatum_t::middle_left); segmented(SEG_X, SEG2_Y, SEG_W(), LINES_LAB, book.lineSp, pressed >= 6 ? pressed - 6 : -1);
+    card(MARGIN, BTN_Y(), BTN1_W(), 36, pressed == 4 ? C.CARD2 : C.ACCENT, 10);
+    text(MARGIN + BTN1_W() / 2, BTN_Y() + 18, "Continue reading", C.WHITE, F16B, textdatum_t::middle_center);
+    card(BTN2_X(), BTN2_Y(), BTN2_W(), 36, pressed == 5 ? C.CARD2 : C.CARD, 10);
+    text(BTN2_X() + 12, BTN2_Y() + 18, "Chapters", C.TEXT, F16, textdatum_t::middle_left); chevron(BTN2_X() + BTN2_W() - 16, BTN2_Y() + 18, C.DIM);
   }
   int at(int x, int y) {
-    int sg = segmentAt(x, y, SEG_X, SEG1_Y, SEG_W); if (sg >= 0) return sg;
-    sg = segmentAt(x, y, SEG_X, SEG2_Y, SEG_W); if (sg >= 0) return 6 + sg;
-    if (hit(x, y, MARGIN, BTN_Y - 4, BTN1_W, 44)) return 4; if (hit(x, y, BTN2_X, BTN_Y - 4, BTN2_W, 44)) return 5; return -1;
+    if (portrait()) {
+      int sg = segmentAt(x, y, P_SEG_X, P_SEG1_Y, P_SEG_W); if (sg >= 0) return sg;
+      sg = segmentAt(x, y, P_SEG_X, P_SEG2_Y, P_SEG_W); if (sg >= 0) return 6 + sg;
+      if (hit(x, y, MARGIN, P_CH_Y - 4, W - 2 * MARGIN, 44)) return 5; if (hit(x, y, MARGIN, P_GO_Y - 4, W - 2 * MARGIN, 48)) return 4; return -1;
+    }
+    int sg = segmentAt(x, y, SEG_X, SEG1_Y, SEG_W()); if (sg >= 0) return sg;
+    sg = segmentAt(x, y, SEG_X, SEG2_Y, SEG_W()); if (sg >= 0) return 6 + sg;
+    if (hit(x, y, MARGIN, BTN_Y() - 4, BTN1_W(), 44)) return 4; if (hit(x, y, BTN2_X(), BTN2_Y() - 4, BTN2_W(), 44)) return 5; return -1;
   }
   void onDown(int x, int y) override { pressed = at(x, y); if (pressed >= 0) dirty = true; }
   void onUp(int x, int y) override { if (pressed >= 0) { pressed = -1; dirty = true; } }
@@ -446,7 +491,7 @@ struct BookScreen : Screen {
     // header: chevron, "n · chapter" dim, clock + battery
     const char *ct; int cl; int num = bookChapterNum(book.ch, ct, cl);
     char t[80]; if (num) snprintf(t, sizeof t, "%d \xC2\xB7 %.*s", num, min(cl, 60), ct); else snprintf(t, sizeof t, "%.*s", min(cl, 60), ct);
-    frame.setFont(F12); int n = strlen(t); while (n > 1 && frame.textWidth(t) > 190) t[--n] = 0;
+    frame.setFont(F12); int n = strlen(t); while (n > 1 && frame.textWidth(t) > W - 130) t[--n] = 0;
     chevronLeft(12, 10, C.DIM);
     text(24, 10, t, C.DIM, F12, textdatum_t::middle_left);
     text(W - 36, 10, clockValid() ? clockHHMM().c_str() : "", C.DIM, F12, textdatum_t::middle_right); batteryIcon(W - 21, 10);
@@ -482,8 +527,8 @@ struct BookScreen : Screen {
       y += book.lineH;
     }
     // footer: page in chapter, book progress
-    textf(MARGIN, 227, C.DIM, F12, textdatum_t::middle_left, "%d / %d", book.page + 1, book.npages);
-    textf(W - MARGIN, 227, C.DIM, F12, textdatum_t::middle_right, "%d%%", bookPercent());
+    textf(MARGIN, H - 13, C.DIM, F12, textdatum_t::middle_left, "%d / %d", book.page + 1, book.npages);
+    textf(W - MARGIN, H - 13, C.DIM, F12, textdatum_t::middle_right, "%d%%", bookPercent());
   }
   void next() { if (book.page + 1 < book.npages) book.page++; else if (book.ch + 1 < book.nch) bookOpen(book.ch + 1); else return; bookSave(); dirty = true; }
   void prev() { if (book.page > 0) book.page--; else if (book.ch > 0) { bookOpen(book.ch - 1); book.page = book.npages - 1; } else return; bookSave(); dirty = true; }
@@ -517,22 +562,30 @@ struct LibraryScreen : Screen {
       // cover: the sidecar thumbnail, else initials on a colour from the title
       drawCover(MARGIN + 8, y + 4, lib[i].cover, lib[i].title, pressed == i ? C.CARD2 : C.CARD);
       bool cur = lib[i].file == book.file && book.ch >= 0;
-      String l1, l2; bool two = wrap2(lib[i].title, F12M, 186, l1, l2) == 2;
+      const int tw = portrait() ? W - 62 - MARGIN - 12 : 186;   // landscape leaves the right 60 px to the percent and its bar
+      String l1, l2; bool two = wrap2(lib[i].title, F12M, tw, l1, l2) == 2;
       text(62, y + (two ? 13 : 18), l1.c_str(), cur ? C.ACCENT : C.TEXT, F12M, textdatum_t::middle_left);
       if (two) text(62, y + 27, l2.c_str(), cur ? C.ACCENT : C.TEXT, F12M, textdatum_t::middle_left);
       String sub = opening == i ? String("Opening...") : lib[i].author.length() ? lib[i].author : String(lib[i].file.length() ? "" : "built in");
-      frame.setFont(F12); while (sub.length() > 1 && frame.textWidth(sub) > 186) sub.remove(sub.length() - 1);
-      text(62, y + (two ? 43 : 38), sub.c_str(), C.DIM, F12, textdatum_t::middle_left);
-      int rx = W - MARGIN - 12;
-      textf(rx, y + 21, C.DIM, F12M, textdatum_t::middle_right, lib[i].pct >= 0 ? "%d%%" : "new", lib[i].pct);
-      frame.fillSmoothRoundRect(rx - 40, y + 34, 40, 4, 2, C.LINE);
-      if (lib[i].pct > 0) frame.fillSmoothRoundRect(rx - 40, y + 34, max(4, 40 * lib[i].pct / 100), 4, 2, C.ACCENT);
+      int rx = W - MARGIN - 12; char pc[8]; if (lib[i].pct >= 0) snprintf(pc, sizeof pc, "%d%%", lib[i].pct); else strcpy(pc, "new");
+      if (portrait()) {   // no bar: the percent sits at the right end of the author line
+        frame.setFont(F12M); int pw = frame.textWidth(pc);
+        frame.setFont(F12); while (sub.length() > 1 && frame.textWidth(sub) > tw - pw - 8) sub.remove(sub.length() - 1);
+        text(62, y + (two ? 43 : 38), sub.c_str(), C.DIM, F12, textdatum_t::middle_left);
+        text(rx, y + (two ? 43 : 38), pc, C.DIM, F12M, textdatum_t::middle_right);
+      } else {
+        frame.setFont(F12); while (sub.length() > 1 && frame.textWidth(sub) > 186) sub.remove(sub.length() - 1);
+        text(62, y + (two ? 43 : 38), sub.c_str(), C.DIM, F12, textdatum_t::middle_left);
+        text(rx, y + 21, pc, C.DIM, F12M, textdatum_t::middle_right);
+        frame.fillSmoothRoundRect(rx - 40, y + 34, 40, 4, 2, C.LINE);
+        if (lib[i].pct > 0) frame.fillSmoothRoundRect(rx - 40, y + 34, max(4, 40 * lib[i].pct / 100), 4, 2, C.ACCENT);
+      }
     }
     frame.clearClipRect();
     frame.fillRect(0, 0, W, LIST_Y, C.BG); drawStatusBar(); drawTitle("Library");
     if (nlib) {
       frame.fillRect(0, H - FOOT, W, FOOT, C.BG);
-      text(W / 2, 229, "Add EPUBs at http://perch.local", C.DIM, F12, textdatum_t::middle_center);
+      text(W / 2, portrait() ? H - 13 : H - 11, "Add EPUBs at http://perch.local", C.DIM, F12, textdatum_t::middle_center);
     }
   }
   int rowAt(int x, int y) { if (y < LIST_Y || y >= H - FOOT) return -1; int i = (y - LIST_Y + scroll) / PITCH; return i < nlib ? i : -1; }

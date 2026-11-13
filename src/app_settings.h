@@ -47,13 +47,13 @@ struct WifiScreen : Screen {
     int right = W - MARGIN - 12;
     if (canForget()) { frame.setFont(F12M); int fw = frame.textWidth("Forget") + 20; frame.fillSmoothRoundRect(right - fw, CONTENT_Y + 10, fw, 24, 12, C.CARD2); text(right - fw / 2, CONTENT_Y + 22, "Forget", C.RED, F12M, textdatum_t::middle_center); right -= fw + 8; }
     text(52, CONTENT_Y + 14, on ? "Connected" : netStatusText(), col, F12M, textdatum_t::middle_left);
-    String sub = on ? WiFi.SSID() + " \xC2\xB7 " + WiFi.localIP().toString() : nnets ? String(nnets) + " saved" : String("Pick a network to join");
+    String sub = on ? (portrait() ? WiFi.SSID() : WiFi.SSID() + " \xC2\xB7 " + WiFi.localIP().toString()) : nnets ? String(nnets) + " saved" : String("Pick a network to join");
     frame.setFont(F12); while (sub.length() > 1 && frame.textWidth(sub) > right - 52) sub.remove(sub.length() - 1);
     text(52, CONTENT_Y + 30, sub.c_str(), C.DIM, F12, textdatum_t::middle_left);
     text(MARGIN, 111, "Networks", C.DIM, F12M, textdatum_t::middle_left);
     // list
     frame.setClipRect(0, LIST_Y, W, H - LIST_Y);
-    if (n == 0) text(W / 2, LIST_Y + 36, scanning() ? "Scanning..." : failed ? "Scan failed. Tap to retry" : "No networks found. Tap to retry", C.DIM, F16, textdatum_t::middle_center);
+    if (n == 0) text(W / 2, LIST_Y + 36, scanning() ? "Scanning..." : failed ? "Scan failed. Tap to retry" : portrait() ? "None found. Tap to retry" : "No networks found. Tap to retry", C.DIM, F16, textdatum_t::middle_center);
     for (int i = 0; i < n; i++) {
       int y = LIST_Y + i * ROW_PITCH - scroll + pull; if (y > H || y + ROW_H < LIST_Y) continue;
       card(MARGIN, y, ROW_W, ROW_H, pressed == i ? C.CARD2 : C.CARD, 10); int cy = y + ROW_H / 2;
@@ -69,7 +69,7 @@ struct WifiScreen : Screen {
       text(24, cy, ss.c_str(), cur ? C.ACCENT : C.TEXT, F16, textdatum_t::middle_left);
     }
     frame.clearClipRect();
-    if (n) { frame.fillRect(0, H - 24, W, 24, C.BG); text(W / 2, 223, "Tap a network to join \xC2\xB7 pull to rescan", C.DIM, F12, textdatum_t::middle_center); }
+    if (n) { frame.fillRect(0, H - 24, W, 24, C.BG); text(W / 2, H - 17, portrait() ? "Tap to join \xC2\xB7 pull to rescan" : "Tap a network to join \xC2\xB7 pull to rescan", C.DIM, F12, textdatum_t::middle_center); }
   }
   void tick() override {
     if (seenSeq != scanSeq) { seenSeq = scanSeq; n = scanCount; failed = (n == 0 && !scanning()); scroll = 0; dirty = true; }
@@ -110,11 +110,32 @@ struct AboutScreen : Screen {
   }
   void kv(int cy, const char *k, String v) {
     text(MARGIN + 12, cy, k, C.DIM, F12, textdatum_t::middle_left);
-    frame.setFont(F12M); while (v.length() > 1 && frame.textWidth(v) > 200) v.remove(v.length() - 1);
+    frame.setFont(F12); int kw = frame.textWidth(k); frame.setFont(F12M); while (v.length() > 1 && frame.textWidth(v) > ROW_W - 24 - kw - 8) v.remove(v.length() - 1);
     text(W - MARGIN - 12, cy, v.c_str(), C.TEXT, F12M, textdatum_t::middle_right);
   }
   void render() override {
     frame.fillScreen(C.BG); drawStatusBar(); drawTitle("About");
+    if (portrait()) {   // the height gives IP, heap and PSRAM their own rows
+      int y = group(CONTENT_Y, 6, [&](int i, int cy) {
+        switch (i) {
+          case 0: kv(cy, "Board", "ES3C28P \xC2\xB7 ESP32-S3"); break;
+          case 1: kv(cy, "Wi-Fi", netConnected() ? WiFi.SSID() : String(netStatusText())); break;
+          case 2: kv(cy, "IP", netConnected() ? WiFi.localIP().toString() : String("-")); break;
+          case 3: kv(cy, "Signal", netConnected() ? String(WiFi.RSSI()) + " dBm" : "-"); break;
+          case 4: kv(cy, "Portal", netConnected() ? "perch.local" : "-"); break;
+          case 5: kv(cy, "Location", wx.ok ? wx.city : "-"); break;
+        }
+      });
+      group(y + 8, 4, [&](int i, int cy) {
+        switch (i) {
+          case 0: kv(cy, "Battery", String(bat.mv / 1000.0f, 2) + " V \xC2\xB7 " + String(bat.pct) + "%" + (bat.usb ? " \xC2\xB7 USB" : "")); break;
+          case 1: kv(cy, "Heap", String(ESP.getFreeHeap() / 1024) + " KB free"); break;
+          case 2: kv(cy, "PSRAM", String(ESP.getFreePsram() / 1024) + " KB free"); break;
+          case 3: kv(cy, "Books", storageText()); break;
+        }
+      });
+      return;
+    }
     int y = group(CONTENT_Y, 5, [&](int i, int cy) {
       switch (i) {
         case 0: kv(cy, "Board", "LCDWiki ES3C28P \xC2\xB7 ESP32-S3"); break;
@@ -174,7 +195,7 @@ struct LocationScreen : Screen {
       else if (i <= NPLACES) text(MARGIN + 12, cy, PLACES[i - 1].name, col, F16, textdatum_t::middle_left);
       else {
         text(MARGIN + 12, cy, "Other city", col, F16, textdatum_t::middle_left);
-        String v = on ? cfg.place : "type a name"; frame.setFont(F12); while (v.length() > 1 && frame.textWidth(v) > 150) v.remove(v.length() - 1);
+        String v = on ? cfg.place : "type a name"; frame.setFont(F12); while (v.length() > 1 && frame.textWidth(v) > W - 150) v.remove(v.length() - 1);
         text(CHEV_X - 18, cy, v.c_str(), C.DIM, F12, textdatum_t::middle_right); chevron(CHEV_X, cy, C.DIM);
       }
       if (on && i < NROWS - 1) icon(CHEV_X, cy, IC_CHECK, IC16, C.ACCENT);
@@ -218,9 +239,9 @@ struct StorageScreen : Screen {
   void render() override {
     frame.fillScreen(C.BG); drawStatusBar(); drawTitle("Storage");
     uint64_t ft = 0, fu = 0; bool flash = storageFlash(ft, fu);
-    drawCard(CONTENT_Y, "SD card", storageSD, storageSD, storageSD ? SD_MMC.totalBytes() : 0, storageSD ? SD_MMC.usedBytes() : 0, "insert a FAT32 card (up to 32 GB)");
+    drawCard(CONTENT_Y, "SD card", storageSD, storageSD, storageSD ? SD_MMC.totalBytes() : 0, storageSD ? SD_MMC.usedBytes() : 0, portrait() ? "insert a FAT32 card" : "insert a FAT32 card (up to 32 GB)");
     drawCard(CONTENT_Y + 84, "Internal flash", flash, bookFS == &LittleFS, ft, fu, "");
-    text(W / 2, 227, "Portal uploads go to the active volume", C.DIM, F12, textdatum_t::middle_center);
+    text(W / 2, portrait() ? H - 17 : 227, portrait() ? "Uploads go to the active volume" : "Portal uploads go to the active volume", C.DIM, F12, textdatum_t::middle_center);
   }
   void tick() override { if (millis() - last > 3000) { last = millis(); storageRetrySD(); dirty = true; } }   // picks up a card inserted while open
 } storageScreen;
@@ -233,6 +254,7 @@ struct BatteryScreen : Screen {
   static const char *state() { return !bat.present ? "No battery" : bat.full ? "Full" : bat.charging ? "Charging" : "On battery"; }
   void kv(int cy, const char *k, String v) {
     text(MARGIN + 12, cy, k, C.DIM, F12, textdatum_t::middle_left);
+    frame.setFont(F12); int kw = frame.textWidth(k); frame.setFont(F12M); while (v.length() > 1 && frame.textWidth(v) > ROW_W - 24 - kw - 8) v.remove(v.length() - 1);
     text(W - MARGIN - 12, cy, v.c_str(), C.TEXT, F12M, textdatum_t::middle_right);
   }
   void render() override {
@@ -251,24 +273,31 @@ struct BatteryScreen : Screen {
     for (int i = 0; i < 4; i++) {
       int cy = y + 16 + i * 20; if (i < 3) frame.drawFastHLine(MARGIN + 12, cy + 9, ROW_W - 24, C.CARD2);
       switch (i) {
-        case 0: kv(cy, "Voltage", String(bat.mv / 1000.0f, 2) + " V" + (bat.charging && !bat.cvSince ? " \xC2\xB7 cell about " + String((bat.mv - bat.lift) / 1000.0f, 2) + " V" : String(""))); break;
+        case 0: kv(cy, "Voltage", String(bat.mv / 1000.0f, 2) + " V" + (bat.charging && !bat.cvSince && !portrait() ? " \xC2\xB7 cell about " + String((bat.mv - bat.lift) / 1000.0f, 2) + " V" : String(""))); break;
         case 1: { int m = bat.nh - 1; kv(cy, "Trend", m < 1 ? String("measuring...") : String(bat.trend > 0 ? "+" : "") + String(bat.trend) + " mV in " + String(m) + " min"); break; }
         case 2: { uint32_t mn = bat.t0 ? (millis() - bat.t0) / 60000 : 0; char t[16]; snprintf(t, sizeof t, "%lu:%02lu", (unsigned long)(mn / 60), (unsigned long)(mn % 60));
-          kv(cy, "Since power-on", bat.t0 ? String(bat.pct0) + "% to " + String(bat.pct) + "% in " + t : String("-")); break; }
+          kv(cy, portrait() ? "Since boot" : "Since power-on", bat.t0 ? String(bat.pct0) + (portrait() ? " to " : "% to ") + String(bat.pct) + "% in " + t : String("-")); break; }
         case 3: kv(cy, "Power", bat.host ? "USB, computer" : bat.usb ? "USB, charger" : "Battery"); break;
       }
     }
-    text(W / 2, 231, bat.usb ? "While charging the level is an estimate" : "Level is read from the cell voltage", C.DIM, F12, textdatum_t::middle_center);
+    if (portrait()) {   // two centred lines above the bottom edge
+      text(W / 2, 288, bat.usb ? "While charging the level" : "Level is read from", C.DIM, F12, textdatum_t::middle_center);
+      text(W / 2, 304, bat.usb ? "is an estimate" : "the cell voltage", C.DIM, F12, textdatum_t::middle_center);
+    } else text(W / 2, 231, bat.usb ? "While charging the level is an estimate" : "Level is read from the cell voltage", C.DIM, F12, textdatum_t::middle_center);
   }
   void tick() override { if (millis() - last > 2000) { last = millis(); dirty = true; } }
 } batteryScreen;
 
+void bookRelayout();   // app_book.h: the open book is laid out again when the screen turns
 // ---------- main settings list (scrollable) ----------
 struct SettingsScreen : Screen {
   static constexpr int Y0 = CONTENT_Y, NROWS = 15;
-  static constexpr int SW_X0 = W - MARGIN - 10 - 5 * 22, SW_P = 22;   // six accent swatches, 22 px apart, the last 10 px from the card edge
-  static constexpr int SL_X = W - MARGIN - 12 - 120, SL_W = 120;   // brightness slider, 12 px from the card's right edge
-  static constexpr int TG_X = W - MARGIN - 8 - 92, TG_W = 92, TG_H = 44;   // 92x24 toggle, two 44 px halves, 8 px from the card's right edge
+  static constexpr int TG_W = 92, TG_H = 44;
+  #define SW_P (portrait() ? 16 : 22)             /* accent swatches: 16 px on a 22 px pitch, portrait 12 px on a 16 px pitch */   // accent swatches 22 px apart; 92x24 toggle, two 44 px halves
+  #define SW_X0 (W - MARGIN - 10 - 5 * SW_P)   /* six swatches, the last 10 px from the card edge */
+  #define SL_W (portrait() ? 64 : 120)         /* brightness slider, 12 px from the card's right edge */
+  #define SL_X (W - MARGIN - 12 - SL_W)
+  #define TG_X (W - MARGIN - 8 - TG_W)         /* toggle, 8 px from the card's right edge */
   enum { R_WIFI, R_LOC, R_BRIGHT, R_SLEEP, R_LIGHT, R_DEEP, R_UNITS, R_THEME, R_ACCENT, R_FLIP, R_SOUND, R_AMBIENT, R_BATTERY, R_STORAGE, R_ABOUT };
   static constexpr int SLEEP_STEPS[] = {0, 1, 2, 5, 10, 30};   // minutes; 0 = never
   static constexpr int LIGHT_STEPS[] = {0, 2, 5, 10, 30}, DEEP_STEPS[] = {0, 10, 30, 60, 120};   // battery sleep, minutes idle; 0 = never
@@ -283,13 +312,21 @@ struct SettingsScreen : Screen {
   void enter() override { scroll = 0; }
   int rowY(int i) { return Y0 + i * ROW_PITCH - scroll; }
   void tile(int y, uint16_t col) { frame.fillSmoothRoundRect(MARGIN + 10, y + 6, 24, 24, 6, col); }   // 24 px icon tile r6; glyph centre (34, y+18)
+  int labelEnd = 56;   // right edge of the row label just drawn: portrait values are cut to what is left of the row
+  void label(int cy, const char *t) { text(56, cy, t, C.TEXT, F16, textdatum_t::middle_left); frame.setFont(F16); labelEnd = 56 + frame.textWidth(t); }
+  // portrait value chip: 24 high r12, at least 44 wide, 8 px from the card's right edge
+  void chip(int y, const char *t) {
+    frame.setFont(F12M); int w = max(44, (int)frame.textWidth(t) + 20), x = W - MARGIN - 8 - w;
+    frame.fillSmoothRoundRect(x, y + 6, w, 24, 12, C.ACCENT); text(x + w / 2, y + 18, t, C.WHITE, F12M, textdatum_t::middle_center);
+  }
   void toggle(int y, bool right, const char *l, const char *r) {
+    if (portrait()) { chip(y, right ? r : l); return; }   // no room for both halves: one chip with the current choice; a tap on the row switches it
     frame.fillSmoothRoundRect(TG_X, y + 6, TG_W, 24, 12, C.CARD2);
     frame.fillSmoothRoundRect(TG_X + 2 + (right ? TG_H : 0), y + 8, TG_H, 20, 10, C.ACCENT);
     text(TG_X + 2 + TG_H / 2, y + 18, l, right ? C.DIM : C.WHITE, F12M, textdatum_t::middle_center);
     text(TG_X + 2 + TG_H + TG_H / 2, y + 18, r, right ? C.WHITE : C.DIM, F12M, textdatum_t::middle_center);
   }
-  void value(int cy, String v, int maxw = 140) { frame.setFont(F12); while (v.length() > 1 && frame.textWidth(v) > maxw) v.remove(v.length() - 1); text(CHEV_X - 18, cy, v.c_str(), C.DIM, F12, textdatum_t::middle_right); }
+  void value(int cy, String v, int maxw = 140, uint16_t col = 0) { if (portrait()) maxw = CHEV_X - 18 - labelEnd - 8; frame.setFont(F12); while (v.length() > 1 && frame.textWidth(v) > maxw) v.remove(v.length() - 1); text(CHEV_X - 18, cy, v.c_str(), col ? col : C.DIM, F12, textdatum_t::middle_right); }
   void render() override {
     frame.fillScreen(C.BG); drawStatusBar(); drawTitle("Settings");
     frame.setClipRect(0, Y0, W, H - Y0);
@@ -299,68 +336,70 @@ struct SettingsScreen : Screen {
       switch (i) {
         case R_WIFI:
           tile(y, C.BLUE); icon(gx, gy, IC_WIFI, IC14, C.WHITE);
-          text(56, cy, "Wi-Fi", C.TEXT, F16, textdatum_t::middle_left);
+          label(cy, "Wi-Fi");
           value(cy, netConnected() ? WiFi.SSID() : cfg.ssid.length() ? cfg.ssid : "Off"); chevron(CHEV_X, cy, C.DIM); break;
         case R_LOC:
           tile(y, C.RED); glyphPin(gx, gy, C.WHITE, C.RED);
-          text(56, cy, "Location", C.TEXT, F16, textdatum_t::middle_left);
+          label(cy, "Location");
           value(cy, cfg.place.length() ? cfg.place : "Automatic"); chevron(CHEV_X, cy, C.DIM); break;
         case R_BRIGHT: {
           tile(y, C.ORANGE); glyphSun(gx, gy, C.WHITE);
-          text(56, cy, "Brightness", C.TEXT, F16, textdatum_t::middle_left);
+          label(cy, "Brightness");
           frame.fillSmoothRoundRect(SL_X, cy - 4, SL_W, 8, 4, C.LINE);
           int fill = (cfg.bright - BRIGHT_MIN) * SL_W / (BRIGHT_MAX - BRIGHT_MIN);
           frame.fillSmoothRoundRect(SL_X, cy - 4, fill, 8, 4, C.ORANGE); frame.fillSmoothCircle(SL_X + constrain(fill, 8, SL_W - 8), cy, 8, C.WHITE); break; }
         case R_SLEEP:
           tile(y, C.INDIGO); icon(gx, gy, IC_TIMER, IC14, C.WHITE);
-          text(56, cy, "Display sleep", C.TEXT, F16, textdatum_t::middle_left);
+          label(cy, "Display sleep");
           value(cy, cfg.sleepMin ? String(cfg.sleepMin) + " min" : "Never"); chevron(CHEV_X, cy, C.DIM); break;
         case R_LIGHT:
           tile(y, C.INDIGO); icon(gx, gy, IC_MOON_STAR, IC14, C.WHITE);
-          text(56, cy, "Light sleep", C.TEXT, F16, textdatum_t::middle_left);
+          label(cy, "Light sleep");
           value(cy, mins(cfg.lightMin)); chevron(CHEV_X, cy, C.DIM); break;
         case R_DEEP:
           tile(y, C.RED); icon(gx, gy, IC_POWER, IC14, C.WHITE);
-          text(56, cy, "Deep sleep", C.TEXT, F16, textdatum_t::middle_left);
+          label(cy, "Deep sleep");
           value(cy, mins(cfg.deepMin)); chevron(CHEV_X, cy, C.DIM); break;
         case R_UNITS:
           tile(y, C.GREEN); glyphThermo(gx, gy, C.WHITE, C.GREEN);
-          text(56, cy, "Temperature", C.TEXT, F16, textdatum_t::middle_left);
+          label(cy, "Temperature");
           toggle(y, cfg.fahrenheit, "\xC2\xB0" "C", "\xC2\xB0" "F"); break;
         case R_THEME:
           tile(y, C.INDIGO); glyphMoon(gx, gy, C.WHITE, C.INDIGO);
-          text(56, cy, "Appearance", C.TEXT, F16, textdatum_t::middle_left);
+          label(cy, "Appearance");
           toggle(y, themeDark, "Light", "Dark"); break;
         case R_ACCENT:
           tile(y, C.ACCENT); icon(gx, gy, IC_PALETTE, IC14, C.WHITE);
-          text(56, cy, "Accent", C.TEXT, F16, textdatum_t::middle_left);
+          label(cy, "Accent");
           for (int i = 0; i < NACCENTS; i++) { int sx = SW_X0 + i * SW_P; uint16_t col = accentColor(i);
-            if (i == cfg.accent) { frame.fillSmoothCircle(sx, cy, 10, C.TEXT); frame.fillSmoothCircle(sx, cy, 8, C.CARD); frame.fillSmoothCircle(sx, cy, 6, col); }
+            if (portrait()) { if (i == cfg.accent) { frame.fillSmoothCircle(sx, cy, 8, C.TEXT); frame.fillSmoothCircle(sx, cy, 6, C.CARD); frame.fillSmoothCircle(sx, cy, 4, col); } else frame.fillSmoothCircle(sx, cy, 6, col); }
+            else if (i == cfg.accent) { frame.fillSmoothCircle(sx, cy, 10, C.TEXT); frame.fillSmoothCircle(sx, cy, 8, C.CARD); frame.fillSmoothCircle(sx, cy, 6, col); }
             else frame.fillSmoothCircle(sx, cy, 8, col); }
           break;
         case R_FLIP:
           tile(y, C.SKY); glyphRotate(gx, gy, C.WHITE);
-          text(56, cy, "Rotation", C.TEXT, F16, textdatum_t::middle_left);
-          toggle(y, cfg.flip, "0\xC2\xB0", "180\xC2\xB0"); break;
+          label(cy, "Rotation");
+          if (portrait()) chip(y, (String(cfg.rot * 90) + "\xC2\xB0").c_str()); else { value(cy, String(cfg.rot * 90) + "\xC2\xB0"); chevron(CHEV_X, cy, C.DIM); }
+          break;
         case R_SOUND:
           tile(y, C.SKY); frame.fillRect(gx - 7, gy - 2, 4, 5, C.WHITE); frame.fillTriangle(gx - 4, gy - 3, gx + 1, gy - 7, gx + 1, gy + 7, C.WHITE); frame.fillTriangle(gx - 4, gy - 3, gx - 4, gy + 3, gx + 1, gy + 7, C.WHITE); frame.fillArc(gx + 1, gy, 6, 5, 310, 50, C.WHITE);
-          text(56, cy, "Robo sounds", C.TEXT, F16, textdatum_t::middle_left);
+          label(cy, "Robo sounds");
           toggle(y, cfg.roboSound, "Off", "On"); break;
         case R_AMBIENT:
           tile(y, C.ORANGE); frame.fillSmoothRoundRect(gx - 7, gy - 6, 5, 8, 2, C.WHITE); frame.fillSmoothRoundRect(gx + 2, gy - 6, 5, 8, 2, C.WHITE); frame.fillArc(gx, gy + 2, 5, 4, 30, 150, C.WHITE);
-          text(56, cy, "Robo screensaver", C.TEXT, F16, textdatum_t::middle_left);
+          label(cy, portrait() ? "Screensaver" : "Robo screensaver");
           toggle(y, cfg.ambient, "Off", "On"); break;
         case R_BATTERY:
           tile(y, C.GREEN); icon(gx, gy, bat.charging ? IC_BATTERY_CHARGING : IC_BATTERY_FULL, IC14, C.WHITE);
-          text(56, cy, "Battery", C.TEXT, F16, textdatum_t::middle_left);
-          value(cy, bat.present ? String(bat.pct) + "%" + (bat.charging ? " \xC2\xB7 charging" : bat.full ? " \xC2\xB7 full" : "") : String("none")); chevron(CHEV_X, cy, C.DIM); break;
+          label(cy, "Battery");
+          value(cy, bat.present ? String(bat.pct) + "%" + (portrait() ? "" : bat.charging ? " \xC2\xB7 charging" : bat.full ? " \xC2\xB7 full" : "") : String("none"), 140, portrait() && bat.usb ? C.GREEN : 0); chevron(CHEV_X, cy, C.DIM); break;
         case R_STORAGE:
           tile(y, C.GREEN); glyphDrive(gx, gy, C.WHITE, C.GREEN);
-          text(56, cy, "Storage", C.TEXT, F16, textdatum_t::middle_left);
+          label(cy, "Storage");
           value(cy, storageName()); chevron(CHEV_X, cy, C.DIM); break;
         case R_ABOUT:
           tile(y, C.DIM); glyphInfo(gx, gy, C.WHITE);
-          text(56, cy, "About", C.TEXT, F16, textdatum_t::middle_left);
+          label(cy, "About");
           chevron(CHEV_X, cy, C.DIM); break;
       }
     }
@@ -386,8 +425,8 @@ struct SettingsScreen : Screen {
       case R_DEEP: cfg.deepMin = nextStep(DEEP_STEPS, 5, cfg.deepMin, cfg.lightMin); cfgSave(); dirty = true; break;
       case R_UNITS: cfg.fahrenheit = !cfg.fahrenheit; cfgSave(); dirty = true; break;
       case R_THEME: cfg.dark = !cfg.dark; applyTheme(cfg.dark); cfgSave(); dirty = true; break;
-      case R_ACCENT: if (x >= SW_X0 - 11) { cfg.accent = constrain((x - SW_X0 + 11) / SW_P, 0, NACCENTS - 1); applyAccent(cfg.accent); cfgSave(); dirty = true; } break;
-      case R_FLIP: cfg.flip = !cfg.flip; applyRotation(cfg.flip); cfgSave(); dirty = true; break;
+      case R_ACCENT: if (x >= SW_X0 - SW_P / 2) { cfg.accent = constrain((x - SW_X0 + SW_P / 2) / SW_P, 0, NACCENTS - 1); applyAccent(cfg.accent); cfgSave(); dirty = true; } break;
+      case R_FLIP: cfg.rot = (cfg.rot + 1) & 3; applyRotation(cfg.rot); bookRelayout(); cfgSave(); scroll = constrain(scroll, 0, max(0, NROWS * ROW_PITCH - (H - Y0))); dirty = true; break;   // tap steps a quarter turn
       case R_SOUND: cfg.roboSound = !cfg.roboSound; cfgSave(); dirty = true; break;
       case R_AMBIENT: cfg.ambient = !cfg.ambient; cfgSave(); dirty = true; break;
       case R_BATTERY: pushScreen(&batteryScreen); break;

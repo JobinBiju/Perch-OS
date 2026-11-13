@@ -72,18 +72,21 @@ static constexpr int EDGE_W = 28, BACK_THRESH = 110;
 // sliding left / right then changes the brightness relative to where it was (the slider's width is the whole
 // range), and lifting saves it ----
 bool pullPending = false, pullMode = false; int pullStart = 0, pullX0 = 0; uint32_t pullSeen = 0;
-static constexpr int PULL_ZONE = 36, PULL_THRESH = 12, SLIDER_X = 56, SLIDER_W = 172, PULL_DROP_MS = 2000;   // start in the top 36 px
+static constexpr int PULL_ZONE = 36, PULL_THRESH = 12, SLIDER_X = 56, PULL_DROP_MS = 2000;   // start in the top 36 px
+// landscape: card (12,12) 296x48, slider from x56; portrait: card (12,24) 216x40, 120 px slider from x50
+static int sliderW() { return portrait() ? 120 : W - 148; }
 void drawBrightCard() {
-  card(MARGIN, 12, W - 2 * MARGIN, 48, C.CARD, 12);
-  icon(36, 36, IC_SUN, IC16, C.ORANGE);
-  int sx = SLIDER_X, sw = SLIDER_W; frame.fillSmoothRoundRect(sx, 32, sw, 8, 4, C.LINE);
+  int cy = portrait() ? 44 : 36, sx = portrait() ? 50 : SLIDER_X, sw = sliderW(), th = portrait() ? 6 : 8;
+  if (portrait()) card(MARGIN, 24, W - 2 * MARGIN, 40, C.CARD, 12); else card(MARGIN, 12, W - 2 * MARGIN, 48, C.CARD, 12);
+  icon(portrait() ? 32 : 36, cy, IC_SUN, IC16, C.ORANGE);
+  frame.fillSmoothRoundRect(sx, cy - th / 2, sw, th, th / 2, C.LINE);
   int fill = (cfg.bright - BRIGHT_MIN) * sw / (BRIGHT_MAX - BRIGHT_MIN);
-  frame.fillSmoothRoundRect(sx, 32, fill, 8, 4, C.ORANGE); frame.fillSmoothCircle(sx + constrain(fill, 8, sw - 8), 36, 8, C.WHITE);
-  textf(W - MARGIN - 12, 36, C.TEXT, F12M, textdatum_t::middle_right, "%d%%", (cfg.bright - BRIGHT_MIN) * 100 / (BRIGHT_MAX - BRIGHT_MIN));
-  flushRows(8, 56);
+  frame.fillSmoothRoundRect(sx, cy - th / 2, fill, th, th / 2, C.ORANGE); frame.fillSmoothCircle(sx + constrain(fill, 8, sw - 8), cy, 8, C.WHITE);
+  textf(W - MARGIN - 12, cy, C.TEXT, F12M, textdatum_t::middle_right, "%d%%", (cfg.bright - BRIGHT_MIN) * 100 / (BRIGHT_MAX - BRIGHT_MIN));
+  flushRows(8, 60);
 }
 void pullUpdate(int x) {
-  cfg.bright = constrain(pullStart + (x - pullX0) * (BRIGHT_MAX - BRIGHT_MIN) / SLIDER_W, BRIGHT_MIN, BRIGHT_MAX);
+  cfg.bright = constrain(pullStart + (x - pullX0) * (BRIGHT_MAX - BRIGHT_MIN) / sliderW(), BRIGHT_MIN, BRIGHT_MAX);
   lcd.setBrightness(cfg.bright); drawBrightCard();
 }
 
@@ -262,6 +265,7 @@ void handleSerial() {
       if (sscanf(line, "t %d %d", &a, &b) == 2) { synth = {true, a, b, a, b, millis(), 80}; }
       else if (line[0] == 'y' && (!line[1] || line[1] == ' ')) lightSleep(atoi(line + 1));   // light sleep now; "y 40" also wakes after 40 s
       else if (line[0] == 'Y' && (!line[1] || line[1] == ' ')) deepSleep(atoi(line + 1));    // deep sleep now; "Y 15" also wakes after 15 s
+      else if (line[0] == 'R' && line[1] == ' ') { cfg.rot = atoi(line + 2) & 3; applyRotation(cfg.rot); bookRelayout(); current()->enter(); current()->dirty = true; }   // rotation 0..3 quarter turns (not saved)
       else if (line[0] == 'm' && line[1] == ' ') { int v = atoi(line + 2); if (v >= 90) face::debug(v); else face::force = v; }   // hold Robo expression N; -1 releases; 90 and up are test hooks
       else if (line[0] == 'f' && line[1] == ' ') {   // font test: draw the text in every font
         const lgfx::IFont *fs[] = {F12, F12M, F16, F16B, RD12, RD16, RD20, F24B}; frame.fillScreen(C.BG); int y = 4;
@@ -301,7 +305,7 @@ void setup() {
   Serial.printf("boot: reset reason %d\n", (int)esp_reset_reason());   // 1 power-on, 3 software, 4 panic, 6 task watchdog, 8 deep sleep
   if (wokeBy != ESP_SLEEP_WAKEUP_UNDEFINED) Serial.printf("power: woke from deep sleep (cause %d)\n", (int)wokeBy);
   cfgLoad(); spLoad();
-  lcd.init(); applyAccent(cfg.accent); applyTheme(cfg.dark); applyRotation(cfg.flip); lcd.setBrightness(cfg.bright); lcd.fillScreen(C.BG);
+  lcd.init(); applyAccent(cfg.accent); applyTheme(cfg.dark); applyRotation(cfg.rot); lcd.setBrightness(cfg.bright); lcd.fillScreen(C.BG);
   frame.setPsram(true); frame.setColorDepth(16);   // PSRAM: keeps ~150 KB of internal RAM free for TLS
   if (!frame.createSprite(W, H)) Serial.println("frame alloc FAILED");
   fontsBegin();

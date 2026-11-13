@@ -7,7 +7,9 @@
 
 extern uint32_t lastActivity; extern bool asleep; void displayWake();   // main.cpp: last touch, display asleep
 namespace face {
-static constexpr int FACE_Y = 30, FACE_H = 160, CAP_Y = 196, CAP_H = 30;
+static constexpr int FACE_Y = 30, CAP_H = 30;
+#define FACE_H (H - 80)   /* the face band and the caption band under it follow the screen height */
+#define CAP_Y (H - 44)
 static constexpr uint8_t ES8311_ADDR = 0x18; static constexpr int SAMPLE_RATE = 16000;
 static const uint16_t BG = lcd.color565(8, 12, 22), EYE_BLUE = lcd.color565(40, 150, 255), EYE_WHITE = lcd.color565(235, 240, 245);
 static const uint16_t MINT = lcd.color565(190, 255, 220), TEXT_BLUE = lcd.color565(150, 200, 255);
@@ -200,7 +202,17 @@ void drawCaption() {
   if (caption[0]) {
     uint32_t shown = (millis() - captionStart) / 35 + 1; size_t len = strlen(caption); if (shown > len) shown = len;
     char buf[64]; strncpy(buf, caption, shown); buf[shown] = 0;
-    text(W / 2, CAP_Y + CAP_H - 8, buf, mood == ANGRY ? EYE_WHITE : mood == LOVE ? PINK : TEXT_BLUE, F12, textdatum_t::bottom_center);
+    uint16_t col = mood == ANGRY ? EYE_WHITE : mood == LOVE ? PINK : TEXT_BLUE;
+    frame.setFont(F12); char full[64]; strlcpy(full, caption, sizeof full); int cut = -1;
+    if (frame.textWidth(full) > W - 16) {   // too wide for one line: break at the last space that fits, measured on the whole caption so the break does not move while it types out
+      for (int k = strlen(full) - 1; k > 0; k--) if (full[k] == ' ') { full[k] = 0; if (frame.textWidth(full) <= W - 16) { cut = k; break; } }
+    }
+    if (cut < 0) text(W / 2, CAP_Y + CAP_H - 8, buf, col, F12, textdatum_t::bottom_center);
+    else {
+      char l1[64]; strlcpy(l1, buf, min((size_t)cut + 1, sizeof l1));
+      text(W / 2, CAP_Y + CAP_H - 16, l1, col, F12, textdatum_t::bottom_center);
+      if ((int)shown > cut + 1) text(W / 2, CAP_Y + CAP_H - 1, buf + cut + 1, col, F12, textdatum_t::bottom_center);
+    }
   } else if (ambient) {   // the screensaver shows the time where captions go
     time_t t = time(nullptr); struct tm tm; localtime_r(&t, &tm);
     if (tm.tm_year > 120) { char b[8]; snprintf(b, sizeof b, "%d:%02d", (tm.tm_hour + 11) % 12 + 1, tm.tm_min); text(W / 2, CAP_Y + CAP_H - 6, b, Z_DIM, F16, textdatum_t::bottom_center); }
@@ -230,14 +242,14 @@ void drawFace() {
     float ex = cx + side * gap / 2; frame.fillSmoothCircle((int)(ex + eyeW * 0.18f), (int)(cy - eyeH * 0.2f), 5, EYE_WHITE); frame.fillSmoothCircle((int)(ex - eyeW * 0.14f), (int)(cy + eyeH * 0.14f), 2, EYE_WHITE);
   }
   if (mood == DANCE) for (int i = 0; i < 2; i++) {   // a note drifting up on each side
-    float p = fmodf(ms / 2400.0f + i * 0.5f, 1.0f); int x = (int)(W / 2 + (i ? 112 : -120) + sinf(p * 6.28f) * 4), y = (int)(FACE_Y + 96 - p * 60); uint16_t c = (p < 0.12f || p > 0.85f) ? Z_DIM : MINT;
+    float p = fmodf(ms / 2400.0f + i * 0.5f, 1.0f); int side = min(112, W / 2 - 16), x = (int)(W / 2 + (i ? side : -side - 8) + sinf(p * 6.28f) * 4), y = (int)(H / 2 + 6 - p * 60); uint16_t c = (p < 0.12f || p > 0.85f) ? Z_DIM : MINT;
     frame.fillSmoothCircle(x, y, 4, c); frame.fillRect(x + 2, y - 14, 2, 14, c); frame.fillRect(x + 2, y - 14, 8, 3, c);
   }
   if (mood == HOT) {   // a sweat drop sliding down beside the right eye
     float p = fmodf(ms / 1500.0f, 1.0f); int x = (int)(cx + gap / 2 + eyeW / 2 + 12), y = (int)(cy - 22 + p * 26);
     frame.fillSmoothCircle(x, y, 5, TEXT_BLUE); frame.fillTriangle(x - 5, y - 1, x + 5, y - 1, x, y - 12, TEXT_BLUE);
   }
-  if (mood == RAIN) for (int i = 0; i < 10; i++) { int x = 24 + i * 30 + (i * 7) % 11, y = FACE_Y + 2 + (int)fmodf(ms * 0.07f + i * 13, 22); frame.drawLine(x, y, x - 3, y + 8, TEXT_BLUE); frame.drawLine(x + 1, y, x - 2, y + 8, TEXT_BLUE); }
+  if (mood == RAIN) for (int i = 0; i < 10; i++) { int x = 16 + i * (W - 32) / 10 + (i * 7) % 11, y = FACE_Y + 2 + (int)fmodf(ms * 0.07f + i * 13, 22); frame.drawLine(x, y, x - 3, y + 8, TEXT_BLUE); frame.drawLine(x + 1, y, x - 2, y + 8, TEXT_BLUE); }
   flushRows(FACE_Y, FACE_H);
   static const char *lastCap = nullptr; static size_t lastLen = 0; static Mood lastMood = IDLE; static int lastMin = -1;
   int minNow = ambient ? (int)(time(nullptr) / 60 % 60) : -1; if (minNow != lastMin) { lastMin = minNow; lastCap = nullptr; }
@@ -514,5 +526,5 @@ void debug(int v) {
   else if (v == 93) ambientStart(); else if (v == 92) ambientEnd();
 }
 // Serial `m 99`: draw three circles on the face with a pretend finger.
-void spinTest() { faceScreen.onDown(200, 110); float px = 200, py = 110; for (int i = 1; i <= 90; i++) { float a = i * 0.21f, x = 160 + cosf(a) * 40, y = 110 + sinf(a) * 40; faceScreen.onMove((int)x, (int)y, (int)(x - px), (int)(y - py)); px = (int)x; py = (int)y; } faceScreen.onUp(0, 0); }
+void spinTest() { float ox = W / 2, oy = H / 2 - 28, px = ox + 40, py = oy; faceScreen.onDown((int)px, (int)py); for (int i = 1; i <= 90; i++) { float a = i * 0.21f, x = ox + cosf(a) * 40, y = oy + sinf(a) * 40; faceScreen.onMove((int)x, (int)y, (int)(x - px), (int)(y - py)); px = (int)x; py = (int)y; } faceScreen.onUp(0, 0); }
 } // namespace face

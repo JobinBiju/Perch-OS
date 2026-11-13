@@ -6,10 +6,13 @@
 #include "lgfx_cfg.h"
 #include "fonts.h"
 
-static constexpr int W = 320, H = 240, SB_H = 20;   // status bar 20, nav header 20..48, content from 52
+int W = 320, H = 240; static constexpr int SB_H = 20;   // status bar 20, nav header 20..48, content from 52
 static constexpr int NAV_Y = 20, NAV_H = 28, CONTENT_Y = 52, MARGIN = 12;
 static constexpr int BRIGHT_MIN = 4, BRIGHT_MAX = 255;   // backlight PWM range exposed to the sliders (44 kHz, 8-bit: 4 is a faint glow)
-static constexpr int ROW_W = W - 2 * MARGIN, ROW_H = 36, ROW_PITCH = 40, CHEV_X = W - MARGIN - 16;   // list rows: 296x36 on a 40 pitch; chevron centre x 292
+static constexpr int ROW_H = 36, ROW_PITCH = 40;   // list rows: full width less the margins, 36 high on a 40 pitch
+#define ROW_W (W - 2 * MARGIN)
+#define CHEV_X (W - MARGIN - 16)   /* chevron centre, 16 px in from the row's right edge */
+inline bool portrait() { return H > W; }
 LGFX lcd;
 LGFX_Sprite frame(&lcd);
 
@@ -39,8 +42,13 @@ void applyTheme(bool dark) {
   }
 }
 
-// landscape, USB on the right by default; the flip setting turns the panel (and touch, via LovyanGFX) 180 degrees
-inline void applyRotation(bool flip) { lcd.setRotation(flip ? 3 : 1); }
+// rot 0..3 = 0, 90, 180, 270 degrees; 0 is landscape with USB on the right. LovyanGFX turns the touch panel with it.
+// W and H follow, and the frame buffer is rebuilt in the new shape (same pixel count either way).
+inline void applyRotation(int rot) {
+  lcd.setRotation((rot + 1) & 3); bool resize = lcd.width() != W;
+  W = lcd.width(); H = lcd.height();
+  if (resize && frame.getBuffer()) { frame.deleteSprite(); frame.createSprite(W, H); }
+}
 
 // ---- frame flushing ----
 inline void flushRows(int y, int h) {

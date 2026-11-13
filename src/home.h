@@ -15,11 +15,22 @@ static constexpr int NAPPS = sizeof(apps) / sizeof(apps[0]);
 // App drawer. Page 0 keeps the clock and weather, with one row of 5 icons; every further page is two rows of 5.
 // Swipe left/right to page; dots under the row show the page when there is more than one.
 static constexpr int ICON = 48, ICON_Y = 156, ICON_GAP = 12, ROW_A = CONTENT_Y;   // 48 px tiles on a 60 px pitch, 16 px margins
-static constexpr int NPAGES = NAPPS <= 5 ? 1 : 1 + (NAPPS - 5 + 9) / 10;
-int iconX(int col) { return 16 + col * (ICON + ICON_GAP); }
-int pageStart(int p) { return p == 0 ? 0 : 5 + (p - 1) * 10; }
-int pageEnd(int p) { int e = p == 0 ? 5 : pageStart(p) + 10; return e < NAPPS ? e : NAPPS; }
-int slotY(int p, int slot) { return (p == 0 || slot >= 5) ? ICON_Y : ROW_A; }
+// The drawer's pages. Landscape: 5 apps under the clock, then 10 a page (2 rows of 5).
+// Portrait: one row of 3 under the clock and weather card, then 9 a page (3 x 3).
+int pageFirst() { return portrait() ? 3 : 5; } int pagePer() { return portrait() ? 9 : 10; }
+int nPages() { return NAPPS <= pageFirst() ? 1 : 1 + (NAPPS - pageFirst() + pagePer() - 1) / pagePer(); }
+// landscape: 5 across on a 60 px pitch; portrait: 3 across on a 72 px pitch from x24
+int iconCols() { return portrait() ? 3 : 5; }
+int iconX(int col) { return portrait() ? 24 + col * 72 : 16 + col * (ICON + ICON_GAP); }
+// Which app sits in a drawer slot. Portrait shows only three on the first page, so Book and Settings move up beside Robo
+// and Weather and Spotify go to the second page; landscape keeps the list order.
+int appAt(int slot) { static const int P[5] = {0, 3, 4, 1, 2}; return portrait() && slot < 5 ? P[slot] : slot; }
+int pageStart(int p) { return p == 0 ? 0 : pageFirst() + (p - 1) * pagePer(); }
+int pageEnd(int p) { int e = p == 0 ? pageFirst() : pageStart(p) + pagePer(); return e < NAPPS ? e : NAPPS; }
+int slotY(int p, int slot) {
+  if (portrait()) return p == 0 ? 208 : 44 + slot / 3 * 80;   // page one: a single row under the weather card; then a 3 x 3 grid on an 80 px pitch
+  return (p == 0 || slot >= 5) ? ICON_Y : ROW_A;
+}
 
 // Spotify mark at the existing 22-pixel radius. Curves are fitted to the reference.
 static void drawSpotifyLogo(int cx, int cy) {
@@ -287,57 +298,74 @@ struct HomeScreen : Screen {
   static constexpr int SNAP_MS = 220;
   const char *name() override { return "Home"; }
   // weather card: (176,40) 128x80 r12, taps open the Weather app
-  static constexpr int WX_X = 176, WX_Y = 40, WX_W = 128, WX_H = 80;
+  // portrait: full width under the date, (12,120) 216x64
+  static int WX_X() { return portrait() ? MARGIN : 176; } static int WX_Y() { return portrait() ? 120 : 40; }
+  static int WX_W() { return portrait() ? W - 2 * MARGIN : 128; } static int WX_H() { return portrait() ? 64 : 80; }
+  void enter() override { page = min(page, nPages() - 1); dragX = 0; snapping = false; }   // a turned screen has a different number of pages
   void render() override {
     frame.fillScreen(C.BG); drawStatusBar();
     const int ox = -page * W + dragX;   // page 0 content slides with the drawer
     if (ox > -W && ox < W) {
-      const int LX = 16 + ox;
-      // clock block: F40B + AM/PM on one baseline (y 72), date 24 px below
+      const int LX = 16 + ox, BY = 72, DY = 96;   // clock baseline, date centre
+      // clock block: F40B + AM/PM on one baseline, date 24 px below
       if (clockValid()) {
         time_t t = time(nullptr); struct tm tm; localtime_r(&t, &tm); char b[32];
         String ap; String tm12 = clock12(&ap); lastClock = clockHHMM(); last = millis();
         frame.setFont(F40B); int tw = frame.textWidth(tm12);
-        text(LX, 72, tm12.c_str(), C.TEXT, F40B, textdatum_t::baseline_left);
-        text(LX + tw + 8, 72, ap.c_str(), C.DIM, F16B, textdatum_t::baseline_left);
+        text(LX, BY, tm12.c_str(), C.TEXT, F40B, textdatum_t::baseline_left);
+        text(LX + tw + 8, BY, ap.c_str(), C.DIM, F16B, textdatum_t::baseline_left);
         strftime(b, sizeof b, "%a, %d %b", &tm);
-        text(LX, 96, b, C.DIM, F16, textdatum_t::middle_left);
+        text(LX, DY, b, C.DIM, F16, textdatum_t::middle_left);
       } else {
-        text(LX, 72, "--:--", C.DIM, F40B, textdatum_t::baseline_left);
-        text(LX, 96, netConnected() ? "Syncing time..." : "Connect Wi-Fi to set the clock", C.DIM, F16, textdatum_t::middle_left);
+        text(LX, BY, "--:--", C.DIM, F40B, textdatum_t::baseline_left);
+        text(LX, DY, netConnected() ? "Syncing time..." : "Connect Wi-Fi to set the clock", C.DIM, F16, textdatum_t::middle_left);
       }
-      if (wx.ok) {   // weather card: icon + F24B temperature, condition F12M, city F12 dim; 10 px padding
-        int cx = WX_X + ox; card(cx, WX_Y, WX_W, WX_H, C.CARD, 12);
+      if (wx.ok && portrait()) {   // weather card: glyph + F24B temperature with the condition right; city and H / L on the second line
+        int cx = WX_X() + ox, wy = WX_Y(), r1 = wy + 22, r2 = wy + 49, rx = cx + WX_W() - 12; card(cx, wy, WX_W(), WX_H(), C.CARD, 12);
         char tb[12]; snprintf(tb, sizeof tb, "%d", (int)roundf(toUnit(wx.temp)));
-        drawWeatherIcon(wx.code, cx + 26, WX_Y + 23, 11);
+        drawWeatherIcon(wx.code, cx + 29, r1 - 3, 11);
         frame.setFont(F24B); int tw = frame.textWidth(tb);
-        text(cx + 50, WX_Y + 23, tb, C.TEXT, F24B, textdatum_t::middle_left);
-        frame.drawCircle(cx + 50 + tw + 5, WX_Y + 15, 3, C.TEXT); frame.drawCircle(cx + 50 + tw + 5, WX_Y + 15, 2, C.TEXT);
-        text(cx + 10, WX_Y + 47, wxText(wx.code), C.TEXT, F12M, textdatum_t::middle_left);
-        String city = wx.city; frame.setFont(F12); while (city.length() > 1 && frame.textWidth(city) > WX_W - 20) city.remove(city.length() - 1);
-        text(cx + 10, WX_Y + 61, city.c_str(), C.DIM, F12, textdatum_t::middle_left);
+        text(cx + 56, r1, tb, C.TEXT, F24B, textdatum_t::middle_left);
+        frame.drawCircle(cx + 56 + tw + 5, r1 - 8, 3, C.TEXT); frame.drawCircle(cx + 56 + tw + 5, r1 - 8, 2, C.TEXT);
+        String cond = wxText(wx.code); frame.setFont(F12M); while (cond.length() > 1 && frame.textWidth(cond) > rx - (cx + 56 + tw + 16)) cond.remove(cond.length() - 1);
+        text(rx, r1, cond.c_str(), C.TEXT, F12M, textdatum_t::middle_right);
+        char hi[12], lo[12]; snprintf(hi, sizeof hi, "H %d", wx.nDays ? (int)roundf(toUnit(wx.days[0].hi)) : 0); snprintf(lo, sizeof lo, "L %d", wx.nDays ? (int)roundf(toUnit(wx.days[0].lo)) : 0);
+        frame.setFont(F12M); int lw = frame.textWidth(lo), hw = frame.textWidth(hi); frame.setFont(F12); int dw = frame.textWidth("\xC2\xB7");
+        text(rx, r2, lo, C.TEXT, F12M, textdatum_t::middle_right); text(rx - lw - 4, r2, "\xC2\xB7", C.DIM, F12, textdatum_t::middle_right); text(rx - lw - dw - 8, r2, hi, C.TEXT, F12M, textdatum_t::middle_right);
+        String city = wx.city; while (city.length() > 1 && frame.textWidth(city) > WX_W() - 24 - (lw + dw + hw + 16)) city.remove(city.length() - 1);
+        text(cx + 12, r2, city.c_str(), C.DIM, F12, textdatum_t::middle_left);
+      } else if (wx.ok) {   // weather card: icon + F24B temperature, condition F12M, city F12 dim; 10 px padding
+        int cx = WX_X() + ox, wy = WX_Y(); card(cx, wy, WX_W(), WX_H(), C.CARD, 12);
+        char tb[12]; snprintf(tb, sizeof tb, "%d", (int)roundf(toUnit(wx.temp)));
+        drawWeatherIcon(wx.code, cx + 26, wy + 23, 11);
+        frame.setFont(F24B); int tw = frame.textWidth(tb);
+        text(cx + 50, wy + 23, tb, C.TEXT, F24B, textdatum_t::middle_left);
+        frame.drawCircle(cx + 50 + tw + 5, wy + 15, 3, C.TEXT); frame.drawCircle(cx + 50 + tw + 5, wy + 15, 2, C.TEXT);
+        text(cx + 10, wy + 47, wxText(wx.code), C.TEXT, F12M, textdatum_t::middle_left);
+        String city = wx.city; frame.setFont(F12); while (city.length() > 1 && frame.textWidth(city) > WX_W() - 20) city.remove(city.length() - 1);
+        text(cx + 10, wy + 61, city.c_str(), C.DIM, F12, textdatum_t::middle_left);
       }
     }
     // icons: current page plus its neighbours, shifted by the drag/snap offset so pages slide in
     for (int p = page - 1; p <= page + 1; p++) {
-      if (p < 0 || p >= NPAGES) continue;
+      if (p < 0 || p >= nPages()) continue;
       int off = (p - page) * W + dragX;
       if (off <= -W || off >= W) continue;
       for (int i = pageStart(p); i < pageEnd(p); i++) {
-        int slot = i - pageStart(p), x = iconX(slot % 5) + off, y = slotY(p, slot);
-        drawAppIconCached(i, x, y, pressed == i);
-        text(x + ICON / 2, y + ICON + 13, apps[i].label, C.TEXT, F12, textdatum_t::middle_center);
+        int slot = i - pageStart(p), x = iconX(slot % iconCols()) + off, y = slotY(p, slot);
+        int a = appAt(i); drawAppIconCached(a, x, y, pressed == a);
+        text(x + ICON / 2, y + ICON + 13, apps[a].label, C.TEXT, F12, textdatum_t::middle_center);
       }
     }
-    if (NPAGES > 1) {   // page dots
-      int dy = ICON_Y + ICON + 28, x0 = W / 2 - (NPAGES - 1) * 6;
-      for (int p = 0; p < NPAGES; p++) frame.fillSmoothCircle(x0 + p * 12, dy, p == page ? 3 : 2, p == page ? C.TEXT : C.DIM);
+    if (nPages() > 1) {   // page dots: the current one is larger
+      int dy = portrait() ? 298 : ICON_Y + ICON + 28, x0 = W / 2 - (nPages() - 1) * 6;
+      for (int p = 0; p < nPages(); p++) frame.fillSmoothCircle(x0 + p * 12, dy, p == page ? 3 : 2, p == page ? C.TEXT : C.DIM);
     }
   }
   int iconAt(int x, int y) {
     for (int i = pageStart(page); i < pageEnd(page); i++) {
-      int slot = i - pageStart(page), ix = iconX(slot % 5), iy = slotY(page, slot);
-      if (x >= ix - 6 && x < ix + ICON + 6 && y >= iy - 6 && y < iy + ICON + 20) return i;
+      int slot = i - pageStart(page), ix = iconX(slot % iconCols()), iy = slotY(page, slot);
+      if (x >= ix - 6 && x < ix + ICON + 6 && y >= iy - 6 && y < iy + ICON + 20) return appAt(i);
     }
     return -1;
   }
@@ -346,7 +374,7 @@ struct HomeScreen : Screen {
     if (snapping) return;
     if (!dragH) { if (abs(x - downX) < 12) return; dragH = true; pressed = -1; }
     int d = x - downX;
-    if ((page == 0 && d > 0) || (page == NPAGES - 1 && d < 0)) d /= 3;   // rubber-band at the ends
+    if ((page == 0 && d > 0) || (page == nPages() - 1 && d < 0)) d /= 3;   // rubber-band at the ends
     if (d != dragX) { dragX = d; dirty = true; }
   }
   void onUp(int x, int y) override {
@@ -354,14 +382,14 @@ struct HomeScreen : Screen {
     if (dragH) {
       dragH = false;
       int d = x - downX;
-      if (d < -40 && page < NPAGES - 1) snapTo = -W; else if (d > 40 && page > 0) snapTo = W; else snapTo = 0;
+      if (d < -40 && page < nPages() - 1) snapTo = -W; else if (d > 40 && page > 0) snapTo = W; else snapTo = 0;
       snapFrom = dragX; snapT0 = millis(); snapping = true; dirty = true;
     }
   }
   void onTap(int x, int y) override {
     int i = iconAt(x, y); pressed = -1;
     if (i >= 0) { if (apps[i].launch) apps[i].launch(); else pushScreen(apps[i].screen); }
-    else if (page == 0 && wx.ok && hit(x, y, WX_X, WX_Y, WX_W, WX_H)) pushScreen(&weatherScreen);
+    else if (page == 0 && wx.ok && hit(x, y, WX_X(), WX_Y(), WX_W(), WX_H())) pushScreen(&weatherScreen);
     else dirty = true;
   }
   void tick() override {
