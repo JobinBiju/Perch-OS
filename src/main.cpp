@@ -113,7 +113,7 @@ RTC_DATA_ATTR uint16_t deepCount = 0, wakeCount = 0, strayCount = 0;   // since 
 bool strayWatch = false;                                                // woken from deep sleep by a touch, and not touched again yet
 void deepSleep(int secs = 0) {
   Serial.printf("power: deep sleep%s\n", secs ? " (timed)" : ""); Serial.flush();
-  bookSave(); deepCount++;
+  bookSave(); deepCount++; batSleepMv = bat.raw;
   lcd.setBrightness(0); lcd.sleep(); portalNetDown(); WiFi.disconnect(true); WiFi.mode(WIFI_OFF);
   face::codecOff(); neopixelWrite(PIN_LED, 0, 0, 0); if (storageSD) SD_MMC.end();   // nothing but the touch chip stays powered up
   digitalWrite(PIN_AMP_EN, HIGH); gpio_hold_en(AMP_PIN);                             // or the amplifier's enable pin floats and it may switch on
@@ -161,8 +161,8 @@ void sleepLoop() {
   if (cfg.sleepMin && !asleep && !face::ambient && idle > (uint32_t)cfg.sleepMin * 60000UL) { if (cfg.ambient && bat.usb) face::ambientStart(); else displaySleep(); }
   if (face::ambient) { if (!bat.usb) { face::ambientEnd(); displaySleep(); } return; }   // the screensaver needs USB power, and holds off the deeper sleeps
   if (face::focusEnd) return;                 // a running focus timer keeps the CPU awake
-  if (strayWatch && !bat.host && idle > 60000) { strayCount++; deepSleep(); }   // woken by a brush in a bag or pocket: straight back to sleep
-  if (bat.host) return;                       // plugged into a computer: stay reachable for serial and flashing
+  if (bat.usb) return;                        // on USB power, a computer or a charger, only the display sleeps
+  if (strayWatch && idle > 60000) { strayCount++; deepSleep(); }   // woken by a brush in a bag or pocket: straight back to sleep
   if (cfg.deepMin && idle > (uint32_t)cfg.deepMin * 60000UL) deepSleep();
   else if (cfg.lightMin && idle > (uint32_t)cfg.lightMin * 60000UL) lightSleep();
 }

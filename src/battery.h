@@ -18,6 +18,7 @@ struct Battery {
   int hist[6] = {0}, nh = 0, trend = 0; uint32_t lastHist = 0;   // one reading a minute: trend = mV gained over the last (nh - 1) minutes
   int mv0 = 0, pct0 = 0, samples = 0; uint32_t t0 = 0;           // first settled reading after power-on, for "since power-on"
 } bat;
+RTC_DATA_ATTR int batSleepMv = 0;   // the reading when the board last went into deep sleep, always on battery; 0 after a power-on
 
 // LiPo open-circuit curve, 3.3 V empty to 4.2 V full
 int batCurve(int mv) {
@@ -40,7 +41,7 @@ void batSample() {
   bool was = bat.usb;
   if (!bat.usb) {
     if (bat.host) { bat.usb = true; bat.byHost = true; }
-    else if (step >= BAT_STEP || (first && raw >= 4150) || bat.trend >= 40) { bat.usb = true; bat.byHost = false; }   // wall adapter
+    else if (step >= BAT_STEP || (first && (batSleepMv ? raw - batSleepMv >= BAT_STEP : raw >= 4150)) || bat.trend >= 40) { bat.usb = true; bat.byHost = false; }   // wall adapter; after deep sleep a full cell alone is no sign of one
     if (bat.usb) { bat.lift = step >= BAT_STEP && bat.mv ? constrain(raw - bat.mv, 40, 300) : BAT_LIFT_GUESS; bat.floorPct = first ? 0 : bat.pct; bat.cvSince = 0; }
   } else if (bat.host) bat.byHost = true;
   else if (bat.byHost || step <= -BAT_STEP || (bat.trend <= -25 && raw < 4100)) bat.usb = false;   // frames stopped, or the voltage fell back
