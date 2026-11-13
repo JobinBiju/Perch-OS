@@ -247,7 +247,7 @@ void handleSerial() {
       else if (c == 'P') panicPrint();     // the last crash since power-on, if any
       else if (c == 'b') popScreen();
       else if (c >= '1' && c <= '5') { if (navDepth == 1) { if (apps[c - '1'].launch) apps[c - '1'].launch(); else pushScreen(apps[c - '1'].screen); } }
-      else if (c == 'W') { wx.ok = true; wx.city = "Kalamassery"; wx.temp = 29; wx.code = 2; wx.hum = 74; wx.wind = 12; wx.nDays = 5; for (int i = 0; i < 5; i++) wx.days[i] = {i % 3 == 0 ? 61 : 2, 31.f, 24.f, (1 + i) % 7}; wx.fetchedAt = millis(); current()->dirty = true; }  // fake weather for layout tests
+      else if (c == 'W') { static int wn = 0; static const int wc[] = {2, 0, 61, 95, 3, 71}; wx.ok = true; wx.city = "Kalamassery"; wx.temp = 29; wx.code = wc[wn++ % 6]; wx.hum = 74; wx.wind = 12; wx.nDays = 5; for (int i = 0; i < 5; i++) wx.days[i] = {i % 3 == 0 ? 61 : 2, 31.f, 24.f, (1 + i) % 7}; wx.fetchedAt = millis(); current()->dirty = true; }  // fake weather for layout tests; each press steps to the next kind of sky
       else if (c == 'T') { applyTheme(!themeDark); current()->dirty = true; }   // preview the other theme (not saved)
       else if (c == 'p') { time_t t = time(nullptr); struct tm tm; localtime_r(&t, &tm); char tb[32]; strftime(tb, sizeof tb, "%Y-%m-%d %H:%M:%S", &tm);
         Serial.printf("time %s tz %ld bright %d wifi %d ssid %s wx ok %d city %s err %s home page %d storage %s ip %s gw %s mask %s bssid %s ch %d\n", tb, cfg.tzOff, cfg.bright, WiFi.status(), WiFi.SSID().c_str(), wx.ok, wx.city.c_str(), wx.err.c_str(), homeScreen.page, storageText().c_str(), WiFi.localIP().toString().c_str(), WiFi.gatewayIP().toString().c_str(), WiFi.subnetMask().toString().c_str(), WiFi.BSSIDstr().c_str(), WiFi.channel());

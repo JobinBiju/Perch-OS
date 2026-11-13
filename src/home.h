@@ -323,7 +323,7 @@ struct HomeScreen : Screen {
       if (wx.ok && portrait()) {   // weather card: glyph + F24B temperature with the condition right; city and H / L on the second line
         int cx = WX_X() + ox, wy = WX_Y(), r1 = wy + 22, r2 = wy + 49, rx = cx + WX_W() - 12; card(cx, wy, WX_W(), WX_H(), C.CARD, 12);
         char tb[12]; snprintf(tb, sizeof tb, "%d", (int)roundf(toUnit(wx.temp)));
-        drawWeatherIcon(wx.code, cx + 29, r1 - 3, 11);
+        drawWeatherIcon(wx.code, cx + 29, r1, 11, true);
         frame.setFont(F24B); int tw = frame.textWidth(tb);
         text(cx + 56, r1, tb, C.TEXT, F24B, textdatum_t::middle_left);
         frame.drawCircle(cx + 56 + tw + 5, r1 - 8, 3, C.TEXT); frame.drawCircle(cx + 56 + tw + 5, r1 - 8, 2, C.TEXT);
@@ -337,7 +337,7 @@ struct HomeScreen : Screen {
       } else if (wx.ok) {   // weather card: icon + F24B temperature, condition F12M, city F12 dim; 10 px padding
         int cx = WX_X() + ox, wy = WX_Y(); card(cx, wy, WX_W(), WX_H(), C.CARD, 12);
         char tb[12]; snprintf(tb, sizeof tb, "%d", (int)roundf(toUnit(wx.temp)));
-        drawWeatherIcon(wx.code, cx + 26, wy + 23, 11);
+        drawWeatherIcon(wx.code, cx + 26, wy + 23, 11, true);
         frame.setFont(F24B); int tw = frame.textWidth(tb);
         text(cx + 50, wy + 23, tb, C.TEXT, F24B, textdatum_t::middle_left);
         frame.drawCircle(cx + 50 + tw + 5, wy + 15, 3, C.TEXT); frame.drawCircle(cx + 50 + tw + 5, wy + 15, 2, C.TEXT);

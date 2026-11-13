@@ -4,16 +4,21 @@
 #include "net.h"
 
 // simple vector weather glyphs, size s (radius-ish), centered at cx,cy
-void drawSun(int cx, int cy, int s, uint16_t col = C.YELLOW) {
+// rays run from r0 to r1 px outside the disc
+void drawSun(int cx, int cy, int s, uint16_t col = C.YELLOW, int r0 = 3, int r1 = 7) {
   frame.fillSmoothCircle(cx, cy, s, col);
-  for (int i = 0; i < 8; i++) { float a = i * PI / 4; int x0 = cx + cosf(a) * (s + 3), y0 = cy + sinf(a) * (s + 3), x1 = cx + cosf(a) * (s + 7), y1 = cy + sinf(a) * (s + 7); frame.drawLine(x0, y0, x1, y1, col); frame.drawLine(x0 + 1, y0, x1 + 1, y1, col); }
+  for (int i = 0; i < 8; i++) { float a = i * PI / 4; int x0 = cx + cosf(a) * (s + r0), y0 = cy + sinf(a) * (s + r0), x1 = cx + cosf(a) * (s + r1), y1 = cy + sinf(a) * (s + r1); frame.drawLine(x0, y0, x1, y1, col); frame.drawLine(x0 + 1, y0, x1 + 1, y1, col); }
 }
 void drawCloud(int cx, int cy, int s, uint16_t col = 0xFFFF) { if (col == 0xFFFF) col = C.CLOUD;
   frame.fillSmoothCircle(cx - s / 2, cy, s * 0.55f, col); frame.fillSmoothCircle(cx + s / 10, cy - s / 4, s * 0.7f, col);
   frame.fillSmoothCircle(cx + s / 2 + s / 6, cy + s / 10, s * 0.5f, col); frame.fillSmoothRoundRect(cx - s / 2, cy, s + s / 6 + s / 2, s * 0.55f, s / 4, col);
 }
 void drawDrops(int cx, int cy, int s, uint16_t col, int n = 3) { for (int i = 0; i < n; i++) { int x = cx - s / 2 + i * (s / (n - 1 > 0 ? n - 1 : 1)); frame.drawLine(x, cy, x - 2, cy + s / 3, col); frame.drawLine(x + 1, cy, x - 1, cy + s / 3, col); } }
-void drawWeatherIcon(int code, int cx, int cy, int s) {
+// compact: for the Home weather card, whose glyph box is 28 px high. The sun gets a smaller disc and shorter rays so the
+// whole glyph stays within s + 2 px of the centre line instead of reaching the card's edge.
+void drawWeatherIcon(int code, int cx, int cy, int s, bool compact = false) {
+  if (compact && (code == 0 || code == 1)) { drawSun(cx, cy, s * 3 / 4, C.YELLOW, 2, 4); return; }
+  if (compact && code == 2) { drawSun(cx - s / 3, cy - s / 4, s * 0.55f, C.YELLOW, 2, 4); drawCloud(cx + s / 6, cy + s / 4, s * 0.8f); return; }
   if (code == 0 || code == 1) { drawSun(cx, cy, s); return; }
   if (code == 2) { drawSun(cx - s / 3, cy - s / 3, s * 0.7f); drawCloud(cx + s / 6, cy + s / 4, s * 0.8f); return; }
   if (code == 3 || code == 45 || code == 48) { drawCloud(cx, cy, s, code == 3 ? C.DIM : C.LINE); return; }
