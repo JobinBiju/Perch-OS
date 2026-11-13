@@ -47,7 +47,7 @@ void batSample() {
   if (was != bat.usb || gap) { bat.mv = raw; bat.nh = 0; bat.trend = 0; }                           // start the smoothing and the trend afresh
   else bat.mv = bat.mv ? (bat.mv * 3 + raw) / 4 : raw;                                              // light smoothing
   bat.raw = raw; bat.lastSample = now;
-  bat.present = bat.mv > 3000;                                                                      // below that nothing is on the divider
+  bat.present = bat.mv > 2000;                                                                      // a drained cell recovering on the charger starts near 2.5 V; with no cell the divider reads far lower
 
   if (!bat.usb) { bat.pct = batCurve(bat.mv); bat.full = false; bat.cvSince = 0; }
   else {
