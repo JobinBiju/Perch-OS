@@ -61,6 +61,12 @@ uint32_t focusEnd = 0, focusTapAt = 0; int focusMin = 0, focusIdx = 0; bool focu
 char dyn[64]; String lastTitle; uint32_t nextRemark = 0; bool prevUsb = false, prevFull = false; int lastHour = -1;
 
 bool esWrite(uint8_t reg, uint8_t val) { Wire.beginTransmission(ES8311_ADDR); Wire.write(reg); Wire.write(val); return Wire.endTransmission() == 0; }
+bool codecOn();
+// Sleep: mute, then power down the ADC, DAC and analog references. Left running the codec draws several mA all night.
+void codecOff() {
+  esWrite(0x32, 0x00); esWrite(0x17, 0x00); esWrite(0x0E, 0xFF); esWrite(0x12, 0x02); esWrite(0x14, 0x00);
+  esWrite(0x0D, 0xFA); esWrite(0x15, 0x00); esWrite(0x37, 0x08); esWrite(0x45, 0x01);
+}
 bool micInit() {
   Wire.begin(PIN_TP_SDA, PIN_TP_SCL, 400000);
   Wire.beginTransmission(ES8311_ADDR); if (Wire.endTransmission() != 0) return false;
@@ -74,6 +80,10 @@ bool micInit() {
   i2s_pin_config_t pins = {}; pins.mck_io_num = PIN_I2S_MCLK; pins.bck_io_num = PIN_I2S_BCLK; pins.ws_io_num = PIN_I2S_WS;
   pins.data_out_num = PIN_I2S_DOUT; pins.data_in_num = PIN_I2S_DIN;
   if (i2s_set_pin(I2S_NUM_0, &pins) != ESP_OK) return false;
+  return codecOn();
+}
+// The codec's register setup, also run again after light sleep (codecOff() powers its analog side down).
+bool codecOn() {
   bool ok = true;
   ok &= esWrite(0x00, 0x1F); delay(20); ok &= esWrite(0x00, 0x00); ok &= esWrite(0x00, 0x80);
   ok &= esWrite(0x01, 0x3F); ok &= esWrite(0x06, 0x03); ok &= esWrite(0x02, 0x00); ok &= esWrite(0x03, 0x10);
