@@ -63,7 +63,7 @@ async function drawCover(cv, file) {
   try {
     const v = new DataView(await (await fetch("/api/cover?file=" + encodeURIComponent(file))).arrayBuffer());
     if (v.getUint8(0) !== 0x50 || v.getUint8(1) !== 0x43) return;
-    const w = v.getUint8(2), h = v.getUint8(3), g = cv.getContext("2d"), im = g.createImageData(w, h), d = im.data;
+    const w = v.getUint8(2), h = v.getUint8(3); cv.width = w; cv.height = h; const g = cv.getContext("2d"), im = g.createImageData(w, h), d = im.data;
     for (let i = 0, o = 4; i < w * h; i++, o += 2) {
       const p = v.getUint16(o, true); if (p === 0xF81F) continue;
       d[i * 4] = (p >> 8) & 0xF8; d[i * 4 + 1] = (p >> 3) & 0xFC; d[i * 4 + 2] = (p << 3) & 0xF8; d[i * 4 + 3] = 255;

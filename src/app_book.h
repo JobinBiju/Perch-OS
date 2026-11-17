@@ -19,7 +19,7 @@ struct Book {
   int ch = -1, fontIdx = 1, lineSp = 1 /* 0 tight, 1 normal, 2 loose */; int *pages = nullptr; int npages = 0, page = 0; uint32_t stamp = 0;   // pages: first line index of each page; stamp: open order, for the library sort
   // layout geometry
   int textX = MARGIN, textY = 30, textW = W - 2 * MARGIN, lineH = 22, lines = 8, lines0 = 6, headH = 0;   // lines0: first page, below the chapter heading
-  uint16_t *cover = nullptr;   // 32x48 thumbnail from the sidecar, in PSRAM
+  uint16_t *cover = nullptr, *coverBig = nullptr;   // 32x48 list thumbnail and the 48x72 one of the portrait reading menu, scaled from the sidecar, in PSRAM
 } book;
 
 struct LibEntry { String file, title, author; uint32_t size; int pct; uint32_t last; uint16_t *cover; };   // last: open order (0 = never opened); cover: 32x48 RGB565 in PSRAM or null
@@ -203,15 +203,30 @@ void bookOpen(int ch, const char *off = nullptr) {
   book.ch = constrain(ch, 0, book.nch - 1); bookPaginate(); book.page = off ? bookPageFor(off) : 0;
 }
 String coverName(const String &file) { return file.endsWith(".txt") ? file.substring(0, file.length() - 4) + ".cov" : String(); }
-uint16_t *libCoverLoad(const String &file) {
+// Sidecar: "PC", width, height, then RGB565. The portal sends 96x144; older uploads are 32x48 with keyed corners.
+// Scaled by averaging the source pixels under each target pixel (96x144 is exactly 3x and 2x the two sizes drawn), then the
+// corners outside radius r take the key colour so the tile is rounded on any background.
+uint16_t *coverScale(const uint16_t *src, int sw, int sh, int dw, int dh, int r) {
+  uint16_t *out = (uint16_t *)ps_malloc(dw * dh * 2); if (!out) return nullptr;
+  for (int y = 0; y < dh; y++) for (int x = 0; x < dw; x++) {
+    int x0 = x * sw / dw, x1 = max(x0 + 1, (x + 1) * sw / dw), y0 = y * sh / dh, y1 = max(y0 + 1, (y + 1) * sh / dh), rr = 0, gg = 0, bb = 0, n = 0;
+    for (int v = y0; v < y1; v++) for (int u = x0; u < x1; u++) { uint16_t c = src[v * sw + u]; if (c == COV_KEY) continue; rr += c >> 11; gg += (c >> 5) & 63; bb += c & 31; n++; }
+    float cx = x < r ? r - 0.5f - x : x >= dw - r ? x - (dw - r - 0.5f) : 0, cy = y < r ? r - 0.5f - y : y >= dh - r ? y - (dh - r - 0.5f) : 0;
+    uint16_t c = n ? ((rr / n) << 11) | ((gg / n) << 5) | (bb / n) : COV_KEY; if (c == COV_KEY && n) c = 0xF81E;
+    out[y * dw + x] = cx * cx + cy * cy > r * r ? COV_KEY : c;
+  }
+  return out;
+}
+uint16_t *libCoverLoad(const String &file, int dw = COV_W, int dh = COV_H, int r = 4) {
   String cn = coverName(file); if (!bookFS || !cn.length()) return nullptr;
   File f = bookFS->open(String(BOOK_DIR) + "/" + cn); if (!f) return nullptr;
-  uint8_t h[4]; uint16_t *px = nullptr;
-  if (f.read(h, 4) == 4 && h[0] == 'P' && h[1] == 'C' && h[2] == COV_W && h[3] == COV_H) {
-    px = (uint16_t *)ps_malloc(COV_W * COV_H * 2);
-    if (px && f.read((uint8_t *)px, COV_W * COV_H * 2) != COV_W * COV_H * 2) { free(px); px = nullptr; }
+  uint8_t h[4]; uint16_t *px = nullptr, *out = nullptr;
+  if (f.read(h, 4) == 4 && h[0] == 'P' && h[1] == 'C' && h[2] >= 16 && h[3] >= 16) {
+    int n = h[2] * h[3] * 2; px = (uint16_t *)ps_malloc(n);
+    if (px && f.read((uint8_t *)px, n) == n) out = coverScale(px, h[2], h[3], dw, dh, r);
+    free(px);
   }
-  f.close(); return px;
+  f.close(); return out;
 }
 // cover placeholder: initials on a colour from the title
 uint16_t coverColor(const String &t) { uint32_t h = 0; for (char c : t) h = h * 31 + (uint8_t)c; const uint16_t cols[] = {rgb(255, 150, 40), C.INDIGO, C.SKY, C.GREEN, C.RED}; return cols[h % 5]; }
@@ -239,7 +254,7 @@ int wrap2(const String &t, const lgfx::IFont *f, int w, String &l1, String &l2) 
 bool bookLoad(const String &file) {
   if (book.buf) { free(book.buf); book.buf = nullptr; }
   book.ch = -1; book.nch = 0; book.file = file;
-  free(book.cover); book.cover = libCoverLoad(file);
+  free(book.cover); book.cover = libCoverLoad(file); free(book.coverBig); book.coverBig = libCoverLoad(file, 48, 72, 6);
   if (!file.length()) { book.data = bookStart; book.dataEnd = bookEnd; }
   else {
     if (!bookFS) return false;
@@ -314,7 +329,7 @@ bool libHas(const String &file) { for (int i = 0; i < nlib; i++) if (lib[i].file
 String libLast() { prefs.begin("books", true); String l = prefs.getString("last", ""); prefs.end(); return l == "*" ? String("") : l; }
 bool bookDelete(const String &file) {
   if (!bookFS || !file.length()) return false;
-  if (book.file == file && book.buf) { free(book.buf); book.buf = nullptr; free(book.cover); book.cover = nullptr; book.ch = -1; book.nch = 0; book.data = book.dataEnd = nullptr; }
+  if (book.file == file && book.buf) { free(book.buf); book.buf = nullptr; free(book.cover); book.cover = nullptr; free(book.coverBig); book.coverBig = nullptr; book.ch = -1; book.nch = 0; book.data = book.dataEnd = nullptr; }
   prefs.begin("books", false); prefs.remove(bookKey(file).c_str()); if (prefs.getString("last", "") == file) prefs.remove("last"); prefs.end();
   bookFS->remove(String(BOOK_DIR) + "/" + coverName(file));
   return bookFS->remove(String(BOOK_DIR) + "/" + file);
@@ -409,9 +424,9 @@ struct ReaderMenuScreen : Screen {
   // portrait: cover 48x72 with title, author and a progress bar beside it; both controls in one card (12,140) 216x72;
   // a Chapters row (12,220) showing the current chapter; Continue (12,268) as the primary action
   static constexpr int P_SEG_X = 58, P_SEG_W = 162, P_SEG1_Y = 148, P_SEG2_Y = 180, P_CH_Y = 220, P_GO_Y = 268;
-  void coverBig(int x, int y) {   // the 32x48 thumbnail at 1.5x, or initials on the title's colour
-    if (book.cover) {
-      for (int dy = 0; dy < 72; dy++) for (int dx = 0; dx < 48; dx++) { uint16_t c = book.cover[(dy * 2 / 3) * COV_W + dx * 2 / 3]; if (c != COV_KEY) frame.drawPixel(x + dx, y + dy, c); }
+  void coverBig(int x, int y) {   // the sidecar at 48x72, or initials on the title's colour
+    if (book.coverBig) {
+      for (int dy = 0; dy < 72; dy++) for (int dx = 0; dx < 48; dx++) { uint16_t c = book.coverBig[dy * 48 + dx]; if (c != COV_KEY) frame.drawPixel(x + dx, y + dy, c); }
       frame.drawRoundRect(x, y, 48, 72, 6, C.LINE);
     } else { frame.fillSmoothRoundRect(x, y, 48, 72, 6, coverColor(book.title)); text(x + 24, y + 36, initials(book.title).c_str(), C.WHITE, F16B, textdatum_t::middle_center); }
   }
