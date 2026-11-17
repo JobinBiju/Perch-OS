@@ -163,8 +163,9 @@ void portalBegin() {
   portal.on("/api/unpair", HTTP_POST, portalUnpair);
   portal.on("/api/devices", HTTP_GET, portalDevices);
   portal.on("/api/book", HTTP_GET, portalBook);
-  portal.on("/", HTTP_GET, []() { portal.send_P(200, "text/html", portalHtml, portalHtmlEnd - portalHtml - 1); });
-  portal.on("/convert.js", HTTP_GET, []() { portal.send_P(200, "application/javascript", portalJs, portalJsEnd - portalJs - 1); });
+  // no-cache: a browser holding last week's page or converter would keep sending books in the old format
+  portal.on("/", HTTP_GET, []() { portal.sendHeader("Cache-Control", "no-cache"); portal.send_P(200, "text/html", portalHtml, portalHtmlEnd - portalHtml - 1); });
+  portal.on("/convert.js", HTTP_GET, []() { portal.sendHeader("Cache-Control", "no-cache"); portal.send_P(200, "application/javascript", portalJs, portalJsEnd - portalJs - 1); });
   portal.on("/hyph-en-us.txt", HTTP_GET, []() { portal.send_P(200, "text/plain", portalHyph, portalHyphEnd - portalHyph - 1); });   // hyphenation patterns for the converter
   portal.on("/api/books", HTTP_GET, portalBooks);
   portal.on("/api/upload", HTTP_POST, []() { if (upOk) portal.send(200, "text/plain", "ok"); else if (!tokOk(portal.arg("t"))) portal.send(401, "text/plain", "pair this browser first"); else portal.send(bookFS ? 400 : 507, "text/plain", bookFS ? "upload failed: bad name or storage full" : "no storage on the board"); }, portalUpload);

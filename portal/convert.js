@@ -1,6 +1,6 @@
 // EPUB -> Perch book text, a port of book_convert.py. Runs in the browser (portal) or in node (tests).
 // convertEpub(zip) -> {title, author, text, chapters:[{title, bytes}], cover}; `zip` is a loaded JSZip and `cover` the zip path
-// of the cover image, if any. coverBytes(zip, path) renders it as the 96x144 RGB565 sidecar the board scales its cover tiles from (browser only).
+// of the cover image, if any. coverBytes(zip, path) renders it as the 160x240 RGB565 sidecar the board scales its cover tiles from (browser only).
 // Text format: "\x02Title\nAuthor\n", chapters start with "\x01Title\n", one paragraph per line; \x03 toggles italic,
 // \x04 toggles bold; U+00AD marks a hyphenation point.
 // Call setHyphenationPatterns(text of hyph-en-us.txt) first to get soft hyphens in English books.
@@ -104,13 +104,13 @@
     return spine.length ? firstImage(zip, spine[0]) : null;
   }
   // Sidecar format: "PC", width, height (one byte each), then width*height RGB565 little-endian pixels.
-  const COV_W = 96, COV_H = 144, COV_KEY = 0xF81F;   // 3x the list tile and 2x the reading menu's; the board rounds the corners itself
+  const COV_W = 160, COV_H = 240, COV_KEY = 0xF81F;   // 5x the board's list tile, and enough for the portal's book page; the board rounds the corners itself
   async function coverBytes(zip, path) {
     const f = zip.file(path); if (!f) return null;
     let img = await createImageBitmap(new Blob([await f.async("arraybuffer")]));
     const sc = Math.max(COV_W / img.width, COV_H / img.height);   // cover fit: scale so both sides are filled, crop the overflow
     let sw = img.width * sc, sh = img.height * sc;
-    while (img.width > 2 * sw) {   // halve in steps: a single drawImage from a 1600 px scan to 96 px aliases badly
+    while (img.width > 2 * sw) {   // halve in steps: a single drawImage from a 1600 px scan to 160 px aliases badly
       const c = document.createElement("canvas"); c.width = Math.ceil(img.width / 2); c.height = Math.ceil(img.height / 2);
       const g = c.getContext("2d"); g.imageSmoothingQuality = "high"; g.drawImage(img, 0, 0, c.width, c.height); img = c;
     }

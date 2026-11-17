@@ -203,8 +203,8 @@ void bookOpen(int ch, const char *off = nullptr) {
   book.ch = constrain(ch, 0, book.nch - 1); bookPaginate(); book.page = off ? bookPageFor(off) : 0;
 }
 String coverName(const String &file) { return file.endsWith(".txt") ? file.substring(0, file.length() - 4) + ".cov" : String(); }
-// Sidecar: "PC", width, height, then RGB565. The portal sends 96x144; older uploads are 32x48 with keyed corners.
-// Scaled by averaging the source pixels under each target pixel (96x144 is exactly 3x and 2x the two sizes drawn), then the
+// Sidecar: "PC", width, height, then RGB565. The portal sends 160x240; older uploads are 96x144, or 32x48 with keyed corners.
+// Scaled by averaging the source pixels under each target pixel, then the
 // corners outside radius r take the key colour so the tile is rounded on any background.
 uint16_t *coverScale(const uint16_t *src, int sw, int sh, int dw, int dh, int r) {
   uint16_t *out = (uint16_t *)ps_malloc(dw * dh * 2); if (!out) return nullptr;
