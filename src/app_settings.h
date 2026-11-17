@@ -337,7 +337,7 @@ struct SettingsScreen : Screen {
         case R_WIFI:
           tile(y, C.BLUE); icon(gx, gy, IC_WIFI, IC14, C.WHITE);
           label(cy, "Wi-Fi");
-          value(cy, netConnected() ? WiFi.SSID() : cfg.ssid.length() ? cfg.ssid : "Off"); chevron(CHEV_X, cy, C.DIM); break;
+          value(cy, !netEnabled() ? String("Off") : netConnected() ? WiFi.SSID() : cfg.ssid.length() ? cfg.ssid : "Off"); chevron(CHEV_X, cy, C.DIM); break;
         case R_LOC:
           tile(y, C.RED); glyphPin(gx, gy, C.WHITE, C.RED);
           label(cy, "Location");

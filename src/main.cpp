@@ -14,6 +14,7 @@
 #include "driver/rtc_io.h"
 #include "esp_sleep.h"
 
+bool ccOpen = false;   // the control centre is down and owns the touch panel (see below)
 // ---- navigation with transitions ----
 static inline float easeOut(float t) { return 1 - (1 - t) * (1 - t) * (1 - t); }
 const lgfx::swap565_t *fbuf() { return (const lgfx::swap565_t *)frame.getBuffer(); }
@@ -22,6 +23,7 @@ const lgfx::swap565_t *fbuf() { return (const lgfx::swap565_t *)frame.getBuffer(
 // slide instead of freezing its end; the slide's last step pushes only the strip not yet shown.
 void pushScreen(Screen *s) {
   if (navDepth >= 6) return;
+  ccOpen = false;
   if (current()) current()->leave();
   navStack[navDepth++] = s;
   s->enter(); s->render(); s->dirty = false;
@@ -38,6 +40,7 @@ void pushScreen(Screen *s) {
 // `from` = how many px of the underlying screen are already revealed (edge-swipe in progress)
 void popScreenAnimated(int from) {
   if (navDepth <= 1) return;
+  ccOpen = false;
   Screen *top = current(); top->leave(); navDepth--;
   Screen *below = current();
   below->enter(); below->render(); below->dirty = false;
@@ -65,29 +68,107 @@ bool readTouch(int &x, int &y) {
   }
   return lcd.getTouch(&x, &y);
 }
-bool touching = false, edgeMode = false, edgePending = false, dragging = false; int tx0, ty0, txl, tyl; uint32_t tStart = 0;
+bool edgeMode = false, edgePending = false, dragging = false; int tx0, ty0, txl, tyl; uint32_t tStart = 0;
 static constexpr int EDGE_W = 28, BACK_THRESH = 110;
 
-// ---- pull-down brightness: a touch that starts in the top band and moves down opens a card at the top;
-// sliding left / right then changes the brightness relative to where it was (the slider's width is the whole
-// range), and lifting saves it ----
-bool pullPending = false, pullMode = false; int pullStart = 0, pullX0 = 0; uint32_t pullSeen = 0;
-static constexpr int PULL_ZONE = 36, PULL_THRESH = 12, SLIDER_X = 56, PULL_DROP_MS = 2000;   // start in the top 36 px
-// landscape: card (12,12) 296x48, slider from x56; portrait: card (12,24) 216x40, 120 px slider from x50
-static int sliderW() { return portrait() ? 120 : W - 148; }
-void drawBrightCard() {
-  int cy = portrait() ? 44 : 36, sx = portrait() ? 50 : SLIDER_X, sw = sliderW(), th = portrait() ? 6 : 8;
-  if (portrait()) card(MARGIN, 24, W - 2 * MARGIN, 40, C.CARD, 12); else card(MARGIN, 12, W - 2 * MARGIN, 48, C.CARD, 12);
-  icon(portrait() ? 32 : 36, cy, IC_SUN, IC16, C.ORANGE);
-  frame.fillSmoothRoundRect(sx, cy - th / 2, sw, th, th / 2, C.LINE);
-  int fill = (cfg.bright - BRIGHT_MIN) * sw / (BRIGHT_MAX - BRIGHT_MIN);
-  frame.fillSmoothRoundRect(sx, cy - th / 2, fill, th, th / 2, C.ORANGE); frame.fillSmoothCircle(sx + constrain(fill, 8, sw - 8), cy, 8, C.WHITE);
+// ---- control centre: a touch that starts in the status bar and moves down pulls a panel over the screen. It holds four
+// tiles (Wi-Fi, Airplane, Dark, Rotate), the brightness slider, and Sleep and Settings. It stays until it is pushed back
+// up, or the screen below it is tapped. Landscape: 320x196 with the tiles in a row; portrait: 240x260 with them 2 x 2.
+bool pullPending = false, pullMode = false; uint32_t pullSeen = 0;
+static constexpr int PULL_ZONE = 36, PULL_THRESH = 12, PULL_DROP_MS = 150;   // start in the top 36 px
+int ccReveal = 0, ccPrev = 0; uint32_t ccDrawn = 0;   // ccReveal: how many px of the panel show (its bottom edge)
+void displaySleep(); void lightSleep(int secs); void bookRelayout();
+static int ccH() { return portrait() ? 260 : 196; }
+static int ccCols() { return portrait() ? 2 : 4; } static int ccTileW() { return portrait() ? 104 : 68; }
+static int ccTileX(int i) { return MARGIN + (i % ccCols()) * (ccTileW() + 8); } static int ccTileY(int i) { return 28 + (i / ccCols()) * 64; }
+static int ccBrightY() { return portrait() ? 156 : 92; } static int ccActY() { return ccBrightY() + 44; } static int ccBtnW() { return (W - 2 * MARGIN - 8) / 2; }
+static int ccTrackX() { return MARGIN + 12 + 16 + 10; } static int ccTrackW() { return W - 2 * MARGIN - 24 - 16 - 10 - 10 - 30; }
+void ccDraw() {   // over whatever is in the frame; everything is shifted up by the part of the panel still hidden
+  int ph = ccH(), o = ph - ccReveal;
+  frame.setClipRect(0, 0, W, ccReveal);
+  frame.fillSmoothRoundRect(0, -o - 16, W, ph + 16, 16, C.CARD);   // only the bottom corners are on screen
+  drawStatusBar(-o, true);
+  struct Tile { const char *glyph, *label; bool on; } tiles[4] = {{IC_WIFI, "Wi-Fi", netEnabled()}, {IC_PLANE, "Airplane", cfg.airplane}, {IC_MOON, "Dark", themeDark}, {IC_ROTATE_CW, "Rotate", false}};
+  for (int i = 0; i < 4; i++) {
+    int x = ccTileX(i), y = ccTileY(i) - o, w = ccTileW(); bool on = tiles[i].on;
+    frame.fillSmoothRoundRect(x, y, w, 56, 12, on ? C.ACCENT : C.CARD2);
+    icon(x + w / 2, y + 19, tiles[i].glyph, IC20, on ? C.WHITE : C.TEXT);
+    text(x + w / 2, y + 41, tiles[i].label, on ? C.WHITE : C.DIM, F12M, textdatum_t::middle_center);
+  }
+  int by = ccBrightY() - o, cy = by + 18, tx = ccTrackX(), tw = ccTrackW();
+  frame.fillSmoothRoundRect(MARGIN, by, W - 2 * MARGIN, 36, 10, C.CARD2);
+  icon(MARGIN + 20, cy, IC_SUN, IC16, C.ORANGE);
+  frame.fillSmoothRoundRect(tx, cy - 4, tw, 8, 4, C.LINE);
+  int fill = (cfg.bright - BRIGHT_MIN) * tw / (BRIGHT_MAX - BRIGHT_MIN);
+  frame.fillSmoothRoundRect(tx, cy - 4, fill, 8, 4, C.ORANGE); frame.fillSmoothCircle(tx + constrain(fill, 8, tw - 8), cy, 8, C.WHITE);
   textf(W - MARGIN - 12, cy, C.TEXT, F12M, textdatum_t::middle_right, "%d%%", (cfg.bright - BRIGHT_MIN) * 100 / (BRIGHT_MAX - BRIGHT_MIN));
-  flushRows(8, 60);
+  static const char *const act[2] = {"Sleep", "Settings"}; static const char *const actIcon[2] = {IC_POWER, IC_SETTINGS};
+  for (int i = 0; i < 2; i++) {
+    int x = MARGIN + i * (ccBtnW() + 8), y = ccActY() - o, w = ccBtnW();
+    frame.fillSmoothRoundRect(x, y, w, 36, 10, C.CARD2);
+    frame.setFont(F16); int lw = frame.textWidth(act[i]), ix = x + (w - (16 + 8 + lw)) / 2;
+    icon(ix + 8, y + 18, actIcon[i], IC16, C.TEXT); text(ix + 24, y + 18, act[i], C.TEXT, F16, textdatum_t::middle_left);
+  }
+  frame.fillSmoothRoundRect(W / 2 - 20, ccActY() + 46 - o, 40, 4, 2, C.LINE);   // grabber
+  frame.clearClipRect();
 }
-void pullUpdate(int x) {
-  cfg.bright = constrain(pullStart + (x - pullX0) * (BRIGHT_MAX - BRIGHT_MIN) / sliderW(), BRIGHT_MIN, BRIGHT_MAX);
-  lcd.setBrightness(cfg.bright); drawBrightCard();
+// Redraw the screen underneath, lay the panel over it, and push the rows that changed.
+void ccShow(bool all = false) {
+  Screen *s = current(); s->render(); s->dirty = false;
+  if (ccReveal > 0) ccDraw();
+  if (all) flushAll(); else flushRows(0, max(ccReveal, ccPrev) + 2);
+  ccPrev = ccReveal; ccDrawn = millis();
+}
+void ccSettle(bool open) {   // ease the panel the rest of the way down, or back up
+  int from = ccReveal, to = open ? ccH() : 0; uint32_t t0 = millis();
+  while (from != to) { float p = (millis() - t0) / 160.0f; if (p >= 1) break; ccReveal = from + (int)((to - from) * easeOut(p)); ccShow(); }
+  ccReveal = to; ccOpen = open; ccShow(!open);
+}
+void ccPull(int y) { ccReveal = constrain(y + 12, 0, ccH()); ccShow(); }   // the panel's edge follows the finger
+// Wi-Fi or Airplane changed: power the radio down, or bring it back and reconnect.
+void netApplyRadio() {
+  if (netEnabled()) { if (WiFi.getMode() == WIFI_OFF) { WiFi.mode(WIFI_STA); WiFi.setSleep(true); netState = NS_IDLE; netNextTry = 0; netConnect(); } return; }
+  xSemaphoreTake(netMutex, portMAX_DELAY);   // let a request in flight finish
+  portalNetDown(); WiFi.disconnect(true); WiFi.mode(WIFI_OFF); netState = NS_IDLE;
+  xSemaphoreGive(netMutex);
+}
+void ccSetBright(int x) { cfg.bright = constrain(BRIGHT_MIN + (x - ccTrackX()) * (BRIGHT_MAX - BRIGHT_MIN) / ccTrackW(), BRIGHT_MIN, BRIGHT_MAX); lcd.setBrightness(cfg.bright); ccShow(); }
+void ccTap(int x, int y) {
+  if (y >= ccH()) { ccSettle(false); return; }   // a tap on the screen below closes it
+  for (int i = 0; i < 4; i++) if (hit(x, y, ccTileX(i) - 4, ccTileY(i) - 4, ccTileW() + 8, 64)) {
+    if (i == 0) { if (cfg.airplane) { cfg.airplane = false; cfg.wifiOn = true; } else cfg.wifiOn = !cfg.wifiOn; }   // turning Wi-Fi on also leaves airplane mode
+    else if (i == 1) cfg.airplane = !cfg.airplane;
+    else if (i == 2) { cfg.dark = !cfg.dark; applyTheme(cfg.dark); }
+    else { cfg.rot = (cfg.rot + 1) & 3; applyRotation(cfg.rot); bookRelayout(); current()->enter(); ccReveal = ccPrev = ccH(); }
+    cfgSave();
+    if (i < 2) { ccShow(); netApplyRadio(); }   // show the tile first: switching the radio off can take a moment
+    ccShow(true); return;
+  }
+  for (int i = 0; i < 2; i++) if (hit(x, y, MARGIN + i * (ccBtnW() + 8), ccActY() - 4, ccBtnW(), 44)) {
+    ccOpen = false; ccReveal = 0;
+    if (i == 0) { ccShow(true); if (bat.usb) displaySleep(); else lightSleep(0); return; }   // on battery: light sleep, which the deep-sleep timer follows
+    int k = -1; for (int d = 0; d < navDepth; d++) if (navStack[d] == &settingsScreen) k = d;
+    if (k == navDepth - 1) ccShow(true); else if (k >= 0) popScreens(navDepth - 1 - k); else pushScreen(&settingsScreen);
+    return;
+  }
+}
+bool touching = false;
+// While the panel is down every touch is its own: taps on the controls, a drag on the slider, a push upwards to close.
+void ccTouch(bool t, int x, int y) {
+  static bool down = false; static int x0, y0, lx, ly, mode;   // mode: 0 undecided, 1 brightness slider, 2 pushing the panel up
+  if (t && !down) {
+    down = touching = true; x0 = lx = x; y0 = ly = y; mode = hit(x, y, MARGIN, ccBrightY() - 6, W - 2 * MARGIN, 48) ? 1 : 0;
+    if (mode == 1) ccSetBright(x);
+  } else if (t) {
+    if (mode == 1) { if (x != lx) ccSetBright(x); }
+    else { if (mode == 0 && y0 - y > 16) mode = 2; if (mode == 2 && y != ly) { ccReveal = constrain(ccH() + (y - y0), 0, ccH()); ccShow(); } }
+    lx = x; ly = y;
+  } else if (down) {
+    down = touching = false;
+    if (mode == 1) cfgSave();
+    else if (mode == 2) ccSettle(ccReveal > ccH() - 48);
+    else if (abs(lx - x0) + abs(ly - y0) < 16) ccTap(x0, y0);
+  }
 }
 
 // Display sleep: after cfg.sleepMin minutes without a touch the backlight goes off; the next touch only wakes it.
@@ -129,6 +210,7 @@ void deepSleep(int secs = 0) {
 void lightSleep(int secs = 0) {
   Serial.printf("power: light sleep%s\n", secs ? " (timed)" : "");
   xSemaphoreTake(netMutex, portMAX_DELAY);   // let a request in flight finish; the Spotify and weather workers park on this
+  ccOpen = false;
   lcd.setBrightness(0); lcd.sleep(); asleep = true;
   portalNetDown(); WiFi.disconnect(true); WiFi.mode(WIFI_OFF); face::codecOff();
   Serial.flush(); delay(50);
@@ -151,7 +233,7 @@ void lightSleep(int secs = 0) {
   if (hadHost) usbCheckAt = millis() + 3000;
   if (deep) { xSemaphoreGive(netMutex); deepSleep(); }
   face::codecOn();
-  WiFi.mode(WIFI_STA); WiFi.setSleep(true); netState = NS_IDLE; netNextTry = 0; netConnect();
+  if (netEnabled()) { WiFi.mode(WIFI_STA); WiFi.setSleep(true); netState = NS_IDLE; netNextTry = 0; netConnect(); }
   xSemaphoreGive(netMutex);
   lcd.wakeup(); delay(120);                   // the panel needs 120 ms after sleep-out
   Screen *s = current(); s->render(); flushAll(); s->dirty = false;
@@ -177,19 +259,20 @@ void handleTouch() {
   if (t && !touching && face::ambient) { wakeTouch = true; face::ambientEnd(); }   // and a touch on the screensaver only ends it
   if (wakeTouch) { if (!t) wakeTouch = false; return; }
   if (t) { lastActivity = millis(); strayWatch = false; }
-  if (pullMode) { if (t) pullSeen = millis(); else if (millis() - pullSeen < PULL_DROP_MS) return; }   // the panel loses the finger briefly near its top edge: keep the card up
+  if (ccOpen) { ccTouch(t, x, y); return; }
+  if (pullMode) { if (t) pullSeen = millis(); else if (millis() - pullSeen < PULL_DROP_MS) return; }   // the touch panel loses the finger for a moment near its top edge: do not take that as a release
   if (t && !touching) {
     touching = true; tx0 = txl = x; ty0 = tyl = y; tStart = millis(); dragging = false; edgeMode = false; pullMode = false;
-    pullPending = y < PULL_ZONE;                                   // maybe a brightness pull: decide once the finger moves
+    pullPending = y < PULL_ZONE;                                   // maybe a pull on the control centre: decide once the finger moves
     edgePending = !pullPending && (x < EDGE_W && navDepth > 1);   // maybe a back-swipe: decide once the finger moves
     if (!edgePending && !pullPending) s->onDown(x, y);
   } else if (t && touching) {
     int dx = x - txl, dy = y - tyl;
     if (pullPending) {
-      if (y - ty0 > PULL_THRESH) { pullPending = false; pullMode = true; pullStart = cfg.bright; pullX0 = x; pullSeen = millis(); pullUpdate(x); }
+      if (y - ty0 > PULL_THRESH) { pullPending = false; pullMode = true; pullSeen = millis(); ccPrev = 0; ccPull(y); }
       else if (abs(x - tx0) > 16 && abs(x - tx0) > 3 * (y - ty0)) { pullPending = false; s->onDown(tx0, ty0); dragging = true; }   // clearly sideways: not a pull
     }
-    if (pullMode) { if (x != txl) pullUpdate(x); txl = x; tyl = y; return; }
+    if (pullMode) { if (y != tyl) ccPull(y); txl = x; tyl = y; return; }
     if (edgePending) {
       if (x - tx0 > 8) { edgePending = false; edgeMode = true; navDepth--; navStack[navDepth]->render(); navDepth++; } // underlying screen into frame
       else if (abs(y - ty0) > 12 || x - tx0 < -8) { edgePending = false; s->onDown(tx0, ty0); dragging = true; }
@@ -199,7 +282,7 @@ void handleTouch() {
     txl = x; tyl = y;
   } else if (!t && touching) {
     touching = false;
-    if (pullMode) { pullMode = false; cfgSave(); s->render(); flushAll(); s->dirty = false; return; }   // card away, level kept
+    if (pullMode) { pullMode = false; ccSettle(ccReveal > 56); return; }   // far enough: it comes down and stays; else it goes back
     if (pullPending) { pullPending = false; s->onDown(tx0, ty0); }                                       // plain tap in the status bar
     if (edgeMode) {
       edgeMode = false;
@@ -327,7 +410,8 @@ void loop() {
   netLoop(); batLoop(); spLoop(); portalLoop();
   handleTouch(); sleepLoop(); usbReattachLoop(); face::focusLoop();
   Screen *s = current();
-  if (!edgeMode && !pullMode) {   // a slide or the brightness card owns the panel
+  if (ccOpen && !touching && millis() - ccDrawn > 5000) ccShow();   // keeps its clock and Wi-Fi state current
+  if (!edgeMode && !pullMode && !ccOpen) {   // a slide or the control centre owns the panel
     s->tick();
     if (s->dirty) { s->render(); flushAll(); s->dirty = false; }
   }

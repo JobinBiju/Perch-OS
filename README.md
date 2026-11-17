@@ -5,8 +5,8 @@ A small phone-style OS for the LCDWiki **ES3C28P** board: ESP32-S3, 2.8" 320x240
 | Home | Weather | Spotify | Book |
 | --- | --- | --- | --- |
 | ![Home](docs/home.png) | ![Weather](docs/weather.png) | ![Spotify](docs/spotify.png) | ![Library](docs/library.png) |
-| **Reader** | **Settings** | **Brightness** | **Robo** |
-| ![Reader](docs/reader.png) | ![Settings](docs/settings.png) | ![Pull-down brightness](docs/brightness.png) | ![Robo face](docs/robo.png) |
+| **Reader** | **Settings** | **Control centre** | **Robo** |
+| ![Reader](docs/reader.png) | ![Settings](docs/settings.png) | ![Control centre](docs/control-centre.png) | ![Robo face](docs/robo.png) |
 
 ## Apps
 
@@ -16,7 +16,7 @@ A small phone-style OS for the LCDWiki **ES3C28P** board: ESP32-S3, 2.8" 320x240
 - **Book**: a text reader with a library of covers, chapters, three text sizes, three line spacings and saved progress. Justified text with best-fit line breaks, hyphenation, italics and bold, in Literata. Books come from the microSD card.
 - **Settings**: Wi-Fi, weather location, brightness, display sleep (backlight off after 1 to 30 idle minutes, any touch wakes it), light and deep sleep for battery use, °C/°F, light/dark theme, accent colour (six choices, used by every button, selection and marker), rotation in quarter turns (every screen has a portrait layout), battery, storage and About.
 
-Gestures: swipe in from the left edge to go back, swipe sideways on Home to page through apps, and pull down from the top edge on any screen for the brightness slider.
+Gestures: swipe in from the left edge to go back, swipe sideways on Home to page through apps, and pull down from the top edge on any screen for the control centre: Wi-Fi, airplane mode, dark theme, rotation, brightness, Sleep and a shortcut to Settings. Push it back up, or tap below it, to close it.
 
 ## Getting started
 

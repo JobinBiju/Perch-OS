@@ -9,7 +9,7 @@
 
 Preferences prefs;
 SemaphoreHandle_t netMutex = xSemaphoreCreateMutex();   // one TLS session at a time (heap + reliability)
-struct Settings { String ssid, pass; int bright = 220; int rot = 0 /* 0..3 quarter turns */; bool fahrenheit = false, dark = true, roboSound = true, ambient = false; int sleepMin = 0 /* 0 = never */, lightMin = 0, deepMin = 0 /* battery sleep, minutes idle */, accent = 0; long tzOff = 0; String notes, place = "Kalamassery, Kerala"; } cfg;
+struct Settings { String ssid, pass; int bright = 220; int rot = 0 /* 0..3 quarter turns */; bool fahrenheit = false, dark = true, roboSound = true, ambient = false, wifiOn = true, airplane = false; int sleepMin = 0 /* 0 = never */, lightMin = 0, deepMin = 0 /* battery sleep, minutes idle */, accent = 0; long tzOff = 0; String notes, place = "Kalamassery, Kerala"; } cfg;
 
 // Settings live in NVS namespace "perch". Boards flashed before the rename kept them under "robo":
 // copy the known keys across once, then drop the old namespace.
@@ -33,14 +33,14 @@ void cfgLoad() {
   cfgMigrate();
   prefs.begin("perch", true);
   cfg.ssid = prefs.getString("ssid", ""); cfg.pass = prefs.getString("pass", "");
-  cfg.bright = prefs.getInt("bright", 220); cfg.fahrenheit = prefs.getBool("fahr", false); cfg.dark = prefs.getBool("dark", true); cfg.rot = prefs.getInt("rot", prefs.getBool("flip", false) ? 2 : 0) & 3; cfg.roboSound = prefs.getBool("rsound", true); cfg.ambient = prefs.getBool("ambient", false); cfg.sleepMin = prefs.getInt("sleep", 0); cfg.lightMin = prefs.getInt("lsleep", 0); cfg.deepMin = prefs.getInt("dsleep", 0); cfg.accent = prefs.getInt("accent", 0);
+  cfg.bright = prefs.getInt("bright", 220); cfg.fahrenheit = prefs.getBool("fahr", false); cfg.dark = prefs.getBool("dark", true); cfg.rot = prefs.getInt("rot", prefs.getBool("flip", false) ? 2 : 0) & 3; cfg.roboSound = prefs.getBool("rsound", true); cfg.ambient = prefs.getBool("ambient", false); cfg.wifiOn = prefs.getBool("wifion", true); cfg.airplane = prefs.getBool("airpl", false); cfg.sleepMin = prefs.getInt("sleep", 0); cfg.lightMin = prefs.getInt("lsleep", 0); cfg.deepMin = prefs.getInt("dsleep", 0); cfg.accent = prefs.getInt("accent", 0);
   cfg.tzOff = prefs.getLong("tzoff", 0); cfg.notes = prefs.getString("notes", ""); cfg.place = prefs.getString("place", "Kalamassery, Kerala");
   prefs.end();
 }
 void cfgSave() {
   prefs.begin("perch", false);
   prefs.putString("ssid", cfg.ssid); prefs.putString("pass", cfg.pass); prefs.putInt("bright", cfg.bright);
-  prefs.putBool("fahr", cfg.fahrenheit); prefs.putBool("dark", cfg.dark); prefs.putInt("rot", cfg.rot); prefs.putBool("rsound", cfg.roboSound); prefs.putBool("ambient", cfg.ambient); prefs.putInt("sleep", cfg.sleepMin); prefs.putInt("lsleep", cfg.lightMin); prefs.putInt("dsleep", cfg.deepMin); prefs.putInt("accent", cfg.accent); prefs.putLong("tzoff", cfg.tzOff); prefs.putString("notes", cfg.notes); prefs.putString("place", cfg.place);
+  prefs.putBool("fahr", cfg.fahrenheit); prefs.putBool("dark", cfg.dark); prefs.putInt("rot", cfg.rot); prefs.putBool("rsound", cfg.roboSound); prefs.putBool("ambient", cfg.ambient); prefs.putBool("wifion", cfg.wifiOn); prefs.putBool("airpl", cfg.airplane); prefs.putInt("sleep", cfg.sleepMin); prefs.putInt("lsleep", cfg.lightMin); prefs.putInt("dsleep", cfg.deepMin); prefs.putInt("accent", cfg.accent); prefs.putLong("tzoff", cfg.tzOff); prefs.putString("notes", cfg.notes); prefs.putString("place", cfg.place);
   prefs.end();
 }
 
@@ -67,6 +67,7 @@ void netRemember(const String &ssid, const String &pass) {
 void netForget(const String &ssid) { int i = netFind(ssid); if (i < 0) return; for (int k = i + 1; k < nnets; k++) nets[k - 1] = nets[k]; nnets--; netsSave(); }
 
 bool netConnected() { return WiFi.status() == WL_CONNECTED; }
+bool netEnabled() { return cfg.wifiOn && !cfg.airplane; }   // the control centre's Wi-Fi and Airplane tiles; off = radio powered down
 int wifiBars() {
   if (!netConnected()) return 0;
   int r = WiFi.RSSI(); return r > -60 ? 3 : r > -75 ? 2 : 1;
@@ -81,6 +82,7 @@ void netConnectTo(const String &ssid, const String &pass) {
 }
 void netConnect() { if (cfg.ssid.length()) netConnectTo(cfg.ssid, cfg.pass); }
 bool netStartScan() {
+  if (!netEnabled()) return false;
   if (netState == NS_SCANNING) return true;
   if (!netConnected()) { WiFi.disconnect(); delay(50); }   // the SDK refuses to scan while connecting
   WiFi.scanDelete(); int r = WiFi.scanNetworks(true, false); Serial.printf("wifi: scan start %d\n", r);
@@ -90,9 +92,11 @@ bool netStartScan() {
 void netBegin() {
   WiFi.mode(WIFI_STA); WiFi.setAutoReconnect(false); WiFi.setSleep(true);   // reconnection is handled in netLoop
   netsLoad();
+  if (!netEnabled()) { WiFi.mode(WIFI_OFF); return; }
   if (cfg.ssid.length() && netFind(cfg.ssid) >= 0) netConnect();            // try the last network first, scan if it fails
 }
 const char *netStatusText() {
+  if (!netEnabled()) return cfg.airplane ? "Airplane mode" : "Wi-Fi is off";
   if (netConnected()) return "Connected";
   if (!nnets) return "Not configured";
   if (netState == NS_CONNECTING) return "Connecting...";
@@ -107,6 +111,7 @@ void netPickFromScan() {
   else { netState = NS_IDLE; netNextTry = millis() + 20000; }
 }
 void netManage() {
+  if (!netEnabled()) return;
   if (netConnected()) { netState = NS_IDLE; return; }
   if (netState == NS_SCANNING) {
     int r = WiFi.scanComplete();

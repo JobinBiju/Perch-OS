@@ -114,11 +114,11 @@ void batteryIcon(int cx, int cy) {
 
 // ---- status bar: time F12M at x12, battery + wifi on the right with a 12 px margin ----
 bool clockValid(); String clockHHMM(); int wifiBars(); // from net.h
-void drawStatusBar() {
-  frame.fillRect(0, 0, W, SB_H, C.BG);
-  text(MARGIN, SB_H / 2, clockValid() ? clockHHMM().c_str() : "--:--", C.TEXT, F12M, textdatum_t::middle_left);
-  icon(W - 20, SB_H / 2, IC_WIFI, IC16, wifiBars() > 0 ? C.TEXT : C.LINE);   // 16 px, 12 px margin
-  batteryIcon(W - 45, SB_H / 2);                                               // 18 px, 8 px left of the wifi glyph
+void drawStatusBar(int y0 = 0, bool onCard = false) {   // the control centre draws it on its own panel, sliding with it
+  frame.fillRect(0, y0, W, SB_H, onCard ? C.CARD : C.BG);
+  text(MARGIN, y0 + SB_H / 2, clockValid() ? clockHHMM().c_str() : "--:--", C.TEXT, F12M, textdatum_t::middle_left);
+  icon(W - 20, y0 + SB_H / 2, IC_WIFI, IC16, wifiBars() > 0 ? C.TEXT : C.LINE);   // 16 px, 12 px margin
+  batteryIcon(W - 45, y0 + SB_H / 2);                                               // 18 px, 8 px left of the wifi glyph
 }
 
 // back chevron "<": Lucide chevron-left 20 px in a 28 px target at x 4..32 (tap zone: Screen::backHit)
