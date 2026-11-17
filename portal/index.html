@@ -3,112 +3,518 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Perch Books</title>
+<title>Perch Portal</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
 <style>
-  :root { --bg: #0e1016; --card: #1a1d26; --card2: #242836; --text: #eef0f6; --dim: #8b91a3; --blue: #4c8dff; --red: #ff5c5c; --green: #3ecf8e; }
+  :root { --bg: #f2f2f7; --card: #fff; --line: #e5e5ea; --edge: #c8c8ce; --text: #14141a; --dim: #6a6a75; --blue: #0071e3; --bluebg: #e8f2ff; --green: #15803d; --greenbg: #e3f6ea; --red: #c8102e; --redbg: #fdeceb; --off: #ececf1; }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-  main { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; }
-  h1 { font-size: 22px; margin: 0 0 4px; } .sub { color: var(--dim); margin: 0 0 20px; }
-  #drop { border: 2px dashed #3a3f52; border-radius: 14px; padding: 36px 16px; text-align: center; color: var(--dim); cursor: pointer; transition: .15s; }
-  #drop.over { border-color: var(--blue); color: var(--text); background: var(--card); }
-  #drop strong { color: var(--text); } input[type=file] { display: none; }
-  .log { margin: 16px 0 0; } .job { background: var(--card); border-radius: 10px; padding: 10px 14px; margin: 8px 0; }
-  .job .name { font-weight: 600; } .job .st { color: var(--dim); font-size: 13px; }
-  .bar { height: 4px; background: var(--card2); border-radius: 2px; margin-top: 8px; overflow: hidden; } .bar i { display: block; height: 100%; width: 0; background: var(--blue); transition: width .2s; }
-  .job.err .st { color: var(--red); } .job.ok .bar i { background: var(--green); }
-  h2 { font-size: 16px; margin: 28px 0 8px; display: flex; justify-content: space-between; align-items: baseline; } h2 span { color: var(--dim); font-weight: 400; font-size: 13px; }
-  .book { display: flex; align-items: center; gap: 12px; background: var(--card); border-radius: 10px; padding: 10px 14px; margin: 6px 0; }
-  .book .t { flex: 1; min-width: 0; } .book .ti { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .book .au { color: var(--dim); font-size: 13px; }
-  .book .pct { color: var(--dim); font-size: 13px; white-space: nowrap; }
-  .book .cv { width: 32px; height: 48px; border-radius: 4px; background: var(--card2); flex: none; image-rendering: auto; outline: 1px solid #3a3f52; outline-offset: -1px; }
-  button { background: var(--card2); color: var(--text); border: 0; border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 13px; cursor: pointer; } button.del:hover { background: var(--red); }
-  .empty { color: var(--dim); padding: 20px 0; text-align: center; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/22px "Plus Jakarta Sans", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  a { color: var(--blue); text-decoration: none; } a:hover { text-decoration: underline; }
+  button { font: inherit; cursor: pointer; color: inherit; } button:disabled { cursor: default; }
+  h1, h2, p { margin: 0; }
+  svg { flex: none; }
+  .dim { color: var(--dim); } .s13 { font-size: 13px; line-height: 18px; } .b { font-weight: 600; } .ell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .row { display: flex; align-items: center; } .grow { flex: 1; min-width: 0; }
+
+  /* buttons: pills 36 / 40 high */
+  .btn { background: var(--card); color: var(--text); border: 1px solid var(--edge); height: 36px; padding: 0 16px; border-radius: 18px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-size: 14px; font-weight: 600; line-height: 20px; white-space: nowrap; flex: none; }
+  .btn:hover { text-decoration: none; background: #fafafc; }
+  .btn.lg { height: 40px; border-radius: 20px; font-size: 15px; }
+  .btn.pri { background: var(--blue); color: #fff; border: 0; } .btn.pri:hover { background: #0068d1; }
+  .btn.danger { background: none; color: var(--red); border-color: #f3c2c0; }
+  .btn:disabled { background: var(--off); color: #a0a0aa; border: 0; }
+
+  header.top { height: 64px; background: var(--card); border-bottom: 1px solid var(--line); padding: 0 32px; display: flex; align-items: center; justify-content: space-between; }
+  .brand { display: flex; align-items: center; gap: 12px; color: var(--text); } .brand:hover { text-decoration: none; }
+  .logo { width: 32px; height: 32px; border-radius: 9px; background: var(--text); display: inline-flex; align-items: center; justify-content: center; flex: none; }
+  .brand b { font-size: 18px; font-weight: 700; } .brand i { width: 1px; height: 18px; background: var(--edge); }
+  .paired { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--dim); }
+  .pairpill { display: none; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border-radius: 16px; background: var(--greenbg); color: var(--green); font-size: 13px; font-weight: 600; border: 0; }
+  main { width: 1040px; max-width: calc(100% - 48px); margin: 0 auto; padding: 32px 0 64px; display: flex; flex-direction: column; gap: 36px; }
+  section { display: flex; flex-direction: column; gap: 16px; }
+  .head { display: flex; align-items: center; justify-content: space-between; min-height: 36px; gap: 12px; }
+  .head h2 { font-size: 22px; font-weight: 700; line-height: 28px; } .head .t { display: flex; align-items: baseline; gap: 12px; }
+
+  /* devices */
+  .devs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .dev { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+  .tile { width: 44px; height: 44px; border-radius: 12px; background: var(--bg); display: inline-flex; align-items: center; justify-content: center; flex: none; }
+  .dev .name { font-size: 17px; font-weight: 600; line-height: 24px; }
+  .pill { height: 26px; padding: 0 10px; border-radius: 13px; font-size: 13px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; flex: none; }
+  .pill.on { background: var(--greenbg); color: var(--green); } .pill.off { background: var(--off); color: var(--dim); }
+  .pill i { width: 8px; height: 8px; border-radius: 50%; background: #34c759; } .pill.off i { background: #a0a0aa; }
+  .stats { display: flex; gap: 12px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .stats > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .stats b { display: inline-flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 600; white-space: nowrap; }
+  .stats span { font-size: 12px; line-height: 16px; color: var(--dim); white-space: nowrap; }
+  .foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 20px; font-size: 13px; line-height: 18px; color: var(--dim); }
+  .tag { height: 20px; padding: 0 8px; border-radius: 10px; background: var(--bg); color: var(--text); font-size: 12px; font-weight: 600; line-height: 20px; white-space: nowrap; }
+  .dev .mini { display: none; }
+
+  /* library */
+  .search { width: 260px; height: 40px; border-radius: 20px; background: var(--card); border: 1px solid var(--edge); padding: 0 14px; display: flex; align-items: center; gap: 8px; color: var(--dim); }
+  .search input { border: 0; outline: 0; background: none; font: inherit; color: var(--text); width: 100%; } .search:focus-within { border-color: var(--blue); box-shadow: 0 0 0 4px var(--bluebg); }
+  .drop { height: 72px; border-radius: 16px; border: 1.5px dashed var(--edge); display: flex; align-items: center; justify-content: center; gap: 12px; color: var(--dim); background: none; width: 100%; padding: 0 16px; text-align: left; }
+  .drop b { color: var(--text); font-weight: 600; } .drop.over, body.dragging .drop { border-color: var(--blue); background: var(--bluebg); }
+  .list { background: var(--card); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+  .cols, .book { display: grid; grid-template-columns: 40px minmax(0, 1fr) 240px 160px 32px; column-gap: 20px; align-items: center; padding: 0 20px; }
+  .cols { height: 40px; border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; color: var(--dim); }
+  .book { height: 80px; border-bottom: 1px solid var(--line); color: var(--text); } .book:last-child { border-bottom: 0; } .book:hover { text-decoration: none; background: #fafafc; }
+  .cover { width: 40px; height: 56px; border-radius: 4px; box-shadow: inset 3px 0 0 rgba(255,255,255,.18), 0 1px 2px rgba(20,20,26,.18); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; letter-spacing: .5px; color: #fff; flex: none; overflow: hidden; }
+  .cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .book .ti { font-size: 16px; font-weight: 600; line-height: 22px; }
+  .chips { display: flex; gap: 6px; min-width: 0; }
+  .chip { height: 24px; padding: 0 8px; border-radius: 12px; background: var(--bg); border: 1px solid transparent; font-size: 13px; font-weight: 500; line-height: 22px; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; flex: none; }
+  .chip.off { background: none; color: var(--dim); border: 1px dashed var(--edge); }
+  .prog { display: inline-flex; align-items: center; gap: 10px; } .bar { position: relative; width: 88px; height: 6px; border-radius: 3px; background: var(--line); flex: none; } .bar i { position: absolute; left: 0; top: 0; height: 6px; border-radius: 3px; background: var(--text); }
+  .prog b { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .new { height: 22px; padding: 0 8px; border-radius: 11px; background: var(--bluebg); color: var(--blue); font-size: 12px; font-weight: 700; line-height: 22px; letter-spacing: .3px; display: inline-block; }
+  .more { width: 32px; height: 32px; border-radius: 16px; display: inline-flex; align-items: center; justify-content: center; }
+  .empty { padding: 36px 20px; text-align: center; color: var(--dim); }
+  .fab { display: none; }
+
+  /* dialog */
+  .scrim { position: fixed; inset: 0; background: rgba(20,20,26,.42); display: flex; align-items: flex-start; justify-content: center; padding: 96px 16px 24px; overflow: auto; z-index: 10; }
+  .dialog { width: 560px; max-width: 100%; background: var(--card); border-radius: 20px; box-shadow: 0 24px 64px rgba(20,20,26,.28); padding: 28px; display: flex; flex-direction: column; gap: 20px; }
+  .dialog h2 { font-size: 22px; font-weight: 700; line-height: 28px; } .grab { display: none; }
+  .x { width: 32px; height: 32px; border-radius: 16px; background: var(--bg); border: 0; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+  .file { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); } .file:last-child { border-bottom: 0; }
+  .fic { width: 36px; height: 36px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; flex: none; background: var(--bluebg); } .fic.ok { background: var(--greenbg); } .fic.err { background: var(--redbg); }
+  .file .st { font-size: 13px; line-height: 18px; color: var(--dim); display: flex; align-items: center; gap: 8px; min-height: 18px; } .file.err .st { color: var(--red); }
+  .thin { position: relative; flex: 1; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; } .thin i { position: absolute; left: 0; top: 0; height: 4px; border-radius: 2px; background: var(--blue); }
+  .thin.busy i { width: 40%; animation: slide 1.1s linear infinite; } @keyframes slide { from { left: -40%; } to { left: 100%; } }
+  .rm { width: 28px; height: 28px; border-radius: 14px; border: 0; background: none; padding: 0; display: inline-flex; align-items: center; justify-content: center; flex: none; } .rm:hover { background: var(--bg); }
+  .morefiles { height: 44px; border-radius: 12px; border: 1.5px dashed var(--edge); background: none; color: var(--dim); display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .cap { font-size: 12px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; color: var(--dim); }
+  .target { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); cursor: pointer; }
+  .target.sel { border-color: var(--blue); background: var(--bluebg); } .target.dis { cursor: default; } .target.dis .b { color: var(--dim); }
+  .target input { position: absolute; opacity: 0; pointer-events: none; }
+  .box { width: 22px; height: 22px; border-radius: 7px; border: 1.5px solid var(--edge); background: var(--card); display: inline-flex; align-items: center; justify-content: center; flex: none; }
+  .sel .box, .box.on { background: var(--blue); border-color: var(--blue); } .dis .box { background: var(--bg); border-color: var(--line); }
+  .dfoot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 4px; flex-wrap: wrap; }
+
+  /* book page */
+  .back { display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; height: 32px; color: var(--dim); font-weight: 600; }
+  .bookpage { display: grid; grid-template-columns: 280px minmax(0, 1fr); column-gap: 48px; align-items: start; }
+  .bookpage .left { display: flex; flex-direction: column; gap: 24px; }
+  .bigcover { width: 280px; height: 400px; border-radius: 12px; font-size: 72px; }
+  .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 12px; } .facts div { display: flex; flex-direction: column; gap: 2px; } .facts b { font-weight: 600; }
+  .bookpage h1 { font-size: 32px; font-weight: 800; line-height: 40px; letter-spacing: -.4px; }
+  .sub h2 { font-size: 17px; font-weight: 700; line-height: 24px; }
+  .panel { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 4px 20px; }
+  .copy { min-height: 72px; display: grid; grid-template-columns: 44px 200px minmax(0, 1fr) 104px; column-gap: 16px; align-items: center; border-bottom: 1px solid var(--line); } .copy:last-child { border-bottom: 0; }
+  .copy .bar { width: 120px; }
+  .chap { height: 44px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--line); } .chap:last-child { border-bottom: 0; } .chap .n { width: 28px; color: var(--dim); font-variant-numeric: tabular-nums; flex: none; }
+  .chap.now { color: var(--blue); font-weight: 600; } .chap.now .n, .chap.now .s13 { color: var(--blue); }
+
+  /* pairing */
+  .pairwrap { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px; padding: 24px 16px; }
+  .paircard { width: 460px; max-width: 100%; background: var(--card); border: 1px solid var(--line); border-radius: 24px; padding: 40px; display: flex; flex-direction: column; gap: 24px; }
+  .paircard h1 { font-size: 28px; font-weight: 800; line-height: 36px; letter-spacing: -.3px; }
+  .devchip { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 8px 14px; border-radius: 14px; background: var(--bg); }
+  .code { display: flex; align-items: center; justify-content: center; gap: 10px; }
+  .code input { width: 56px; height: 68px; border-radius: 12px; background: var(--card); border: 1.5px solid var(--edge); text-align: center; font: inherit; font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); outline: 0; padding: 0; }
+  .code input:focus { border: 2px solid var(--blue); box-shadow: 0 0 0 4px var(--bluebg); } .code i { width: 10px; height: 2px; border-radius: 1px; background: var(--edge); }
+  .keep { display: flex; align-items: center; gap: 10px; cursor: pointer; } .keep input { position: absolute; opacity: 0; }
+  .wide { height: 48px; border-radius: 14px; width: 100%; font-size: 15px; }
+  .msg { text-align: center; font-size: 13px; color: var(--red); min-height: 18px; margin-top: -12px; }
+  .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); background: var(--text); color: #fff; padding: 10px 16px; border-radius: 12px; font-size: 14px; z-index: 20; max-width: calc(100% - 32px); }
+
+  @media (max-width: 760px) {
+    header.top { height: 56px; padding: 0 16px; } .logo { width: 30px; height: 30px; border-radius: 8px; } .brand i, .brand .dim, .paired, .forget { display: none; } .pairpill { display: inline-flex; }
+    main { max-width: 100%; width: 100%; padding: 20px 0 96px; gap: 24px; } section { gap: 12px; } .head { padding: 0 16px; } .head h2 { font-size: 20px; }
+    .devs { display: flex; gap: 10px; padding: 0 16px; overflow-x: auto; scrollbar-width: none; } .devs::-webkit-scrollbar { display: none; }
+    .dev { flex: none; width: 156px; padding: 14px; gap: 10px; } .dev .full { display: none; } .dev .mini { display: block; } .dev .tile { width: 40px; height: 40px; border-radius: 10px; }
+    .dev .toprow { justify-content: space-between; } .dev .name { font-size: 16px; line-height: 22px; } .dev .pill { background: none; padding: 0; height: auto; }
+    .scan span, .addbtn { display: none; } .scan { width: 36px; padding: 0; }
+    .lib { padding: 0 16px; } .lib .head { padding: 0; } .search { width: 160px; } .drop { display: none; } .cols { display: none; }
+    .book { display: flex; height: auto; gap: 12px; padding: 12px 14px; align-items: center; } .cover { width: 44px; height: 62px; font-size: 14px; }
+    .book .mid { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; } .book .ti { font-size: 15px; line-height: 20px; }
+    .book .under { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; } .book .bar { width: 40px; } .more, .book > .chips, .book > .pr { display: none; }
+    .fab { display: inline-flex; position: fixed; right: 16px; bottom: 20px; height: 52px; border-radius: 26px; padding: 0 20px; box-shadow: 0 8px 24px rgba(0,113,227,.35); z-index: 5; }
+    .scrim { align-items: flex-end; padding: 0; } .dialog { width: 100%; border-radius: 24px 24px 0 0; padding: 10px 16px 28px; gap: 16px; max-height: 92vh; overflow: auto; } .dialog h2 { font-size: 20px; }
+    .grab { display: block; align-self: center; width: 40px; height: 4px; border-radius: 2px; background: var(--edge); } .x { width: 36px; height: 36px; border-radius: 18px; }
+    .dfoot .btn { flex: 1; } .dfoot > span { width: 100%; }
+    .bookmain { padding: 0 16px; gap: 20px; } .bookpage { grid-template-columns: 1fr; row-gap: 20px; } .bookpage .left { flex-direction: row; gap: 16px; align-items: flex-end; } .bookpage .left .facts { flex: 1; }
+    .bigcover { width: 120px; height: 172px; font-size: 32px; border-radius: 8px; } .bookpage h1 { font-size: 24px; line-height: 30px; }
+    .copy { grid-template-columns: 40px minmax(0, 1fr) auto; row-gap: 6px; padding: 12px 0; } .copy .pr { grid-column: 2 / 4; } .copy .act { grid-row: 1; grid-column: 3; } .copy .tile { width: 40px; height: 40px; }
+    .panel { padding: 4px 14px; } .delrow { flex-direction: column; align-items: stretch; }
+    .paircard { padding: 28px 20px; border-radius: 20px; } .code { gap: 6px; } .code input { width: 44px; height: 56px; font-size: 24px; }
+  }
+  @media (min-width: 761px) { .book .mid .under { display: none; } }
 </style>
 </head>
 <body>
-<main>
-  <h1>Perch Books</h1>
-  <p class="sub">Drop EPUB files here. They are converted in your browser and stored on the board.</p>
-  <div id="drop"><strong>Drop EPUBs</strong> or tap to choose<br><small>conversion happens here, only the text is sent</small></div>
-  <input type="file" id="pick" accept=".epub,application/epub+zip" multiple>
-  <div class="log" id="log"></div>
-  <h2>Library <span id="store"></span></h2>
-  <div id="books"><div class="empty">Loading...</div></div>
-</main>
+<div id="app"></div>
+<input type="file" id="pick" accept=".epub,application/epub+zip" multiple hidden>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="/convert.js"></script>
 <script>
-const $ = s => document.querySelector(s);
-const fmt = b => b >= 1073741824 ? (b / 1073741824).toFixed(1) + " GB" : b >= 1048576 ? (b / 1048576).toFixed(1) + " MB" : Math.round(b / 1024) + " KB";
-async function refresh() {
-  try {
-    const r = await fetch("/api/books"); const j = await r.json();
-    $("#store").textContent = j.storage + ", " + fmt(j.free) + " free";
-    const el = $("#books"); el.innerHTML = "";
-    if (!j.books.length) el.innerHTML = '<div class="empty">No books on the board yet</div>';
-    for (const b of j.books) {
-      const d = document.createElement("div"); d.className = "book";
-      d.innerHTML = `<canvas class="cv" width="32" height="48"></canvas><div class="t"><div class="ti"></div><div class="au"></div></div><div class="pct"></div>`;
-      if (b.cover) drawCover(d.querySelector(".cv"), b.file);
-      d.querySelector(".ti").textContent = b.title; d.querySelector(".au").textContent = (b.author || (b.file ? "" : "built into the firmware")) + (b.file ? "  ·  " + fmt(b.size) : "");
-      d.querySelector(".pct").textContent = b.pct >= 0 ? b.pct + "% read" : "new";
-      if (b.file) { const x = document.createElement("button"); x.className = "del"; x.textContent = "Delete"; x.onclick = async () => { if (!confirm("Delete \"" + b.title + "\" from the board?")) return; await fetch("/api/delete?file=" + encodeURIComponent(b.file), {method: "POST"}); refresh(); }; d.appendChild(x); }
-      el.appendChild(d);
-    }
-  } catch (e) { $("#books").innerHTML = '<div class="empty">Board not reachable</div>'; }
+// One page for every Perch on the network. Each device serves the same API and issues its own token when this browser
+// types the code shown on it; the page keeps a token per device and merges their libraries.
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const fmt = b => b >= 1073741824 ? (b / 1073741824).toFixed(1) + " GB" : b >= 1048576 ? (b / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(b / 1024)) + " KB";
+const P = {   // Lucide paths
+  bird: '<path d="M16 7h.01"/><path d="M3.4 18H12a8 8 0 0 0 8-8V7a4 4 0 0 0-7.28-2.3L2 20"/><path d="m20 7 2 .5-2 .5"/><path d="M10 18v3"/><path d="M14 17.75V21"/><path d="M7 18a6 6 0 0 0 3.84-10.61"/>',
+  shield: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>',
+  refresh: '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
+  lcd: '<rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/>',
+  epaper: '<rect width="16" height="20" x="4" y="2" rx="2" ry="2"/><line x1="12" x2="12.01" y1="18" y2="18"/>',
+  charging: '<path d="m11 7-3 5h4l-3 5"/><path d="M14.856 6H16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.935"/><path d="M22 14v-4"/><path d="M5.14 18H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h2.936"/>',
+  battery: '<path d="M10 14v-4"/><path d="M22 14v-4"/><path d="M6 14v-4"/><rect x="2" y="6" width="16" height="12" rx="2"/>',
+  drive: '<path d="M10 16h.01"/><path d="M2.212 11.577a2 2 0 0 0-.212.896V18a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5.527a2 2 0 0 0-.212-.896L18.55 5.11A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><path d="M21.946 12.013H2.054"/><path d="M6 16h.01"/>',
+  book: '<path d="M12 5v16"/><path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z"/>',
+  wifioff: '<path d="M12 20h.01"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/><path d="M5 12.859a10 10 0 0 1 5.17-2.69"/><path d="M19 12.859a10 10 0 0 0-2.007-1.523"/><path d="M2 8.82a15 15 0 0 1 4.177-2.643"/><path d="M22 8.82a15 15 0 0 0-11.288-3.764"/><path d="m2 2 20 20"/>',
+  search: '<path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/>', plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
+  upload: '<path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>',
+  dots: '<circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/>', x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>', check: '<path d="M20 6 9 17l-5-5"/>',
+  alert: '<circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/>',
+  send: '<path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/>',
+  left: '<path d="m15 18-6-6 6-6"/>', trash: '<path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
+  timer: '<line x1="10" x2="14" y1="2" y2="2"/><line x1="12" x2="15" y1="14" y2="11"/><circle cx="12" cy="14" r="8"/>', lock: '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+};
+const ic = (n, size = 16, col = "currentColor", sw = 2) => `<svg aria-hidden="true" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${col}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round">${P[n]}</svg>`;
+
+// ---- what this browser remembers: a token and the last known state of every device it has paired with
+const store = (() => { try { return JSON.parse(localStorage.getItem("perch") || "{}"); } catch (e) { return {}; } })();
+store.devs = store.devs || {}; store.pending = store.pending || [];   // pending: deletes waiting for an offline device
+const save = () => { try { localStorage.setItem("perch", JSON.stringify(store)); } catch (e) {} };
+const S = {self: null, devs: {}, query: "", add: null, pairFor: null, toastT: 0, detail: null, allCh: false, scanning: false};
+
+const base = d => d.self ? "" : "http://" + d.ip;
+const withT = (d, path) => base(d) + path + (path.includes("?") ? "&" : "?") + "t=" + encodeURIComponent(d.token || "");
+async function get(url, ms = 4000) {
+  const c = new AbortController(), t = setTimeout(() => c.abort(), ms);
+  try { const r = await fetch(url, {signal: c.signal}); if (!r.ok) { const e = new Error(await r.text() || r.status); e.status = r.status; throw e; } return r; } finally { clearTimeout(t); }
 }
-// the board's 32x48 RGB565 sidecar, drawn with its key colour transparent
-async function drawCover(cv, file) {
+const post = (d, path) => fetch(withT(d, path), {method: "POST"}).then(async r => { if (!r.ok) { const e = new Error(await r.text() || r.status); e.status = r.status; throw e; } return r; });
+function remember(d) { store.devs[d.id] = {id: d.id, name: d.name, kind: d.kind, type: d.type, host: d.host, ip: d.ip, token: d.token, info: d.info, books: d.books, seen: d.seen}; save(); }
+const short = d => d.name.split(" ")[0];
+const online = () => Object.values(S.devs).filter(d => d.online);
+const usable = () => online().filter(d => d.paired);
+
+// ---- loading
+async function probe(d) {   // refresh one device: info, then its books if this browser is paired with it
   try {
-    const v = new DataView(await (await fetch("/api/cover?file=" + encodeURIComponent(file))).arrayBuffer());
-    if (v.getUint8(0) !== 0x50 || v.getUint8(1) !== 0x43) return;
-    const w = v.getUint8(2), h = v.getUint8(3); cv.width = w; cv.height = h; const g = cv.getContext("2d"), im = g.createImageData(w, h), d = im.data;
-    for (let i = 0, o = 4; i < w * h; i++, o += 2) {
-      const p = v.getUint16(o, true); if (p === 0xF81F) continue;
-      d[i * 4] = (p >> 8) & 0xF8; d[i * 4 + 1] = (p >> 3) & 0xFC; d[i * 4 + 2] = (p << 3) & 0xF8; d[i * 4 + 3] = 255;
-    }
-    g.putImageData(im, 0, 0); cv.style.background = "none";
-  } catch (e) {}
+    const info = await (await get(withT(d, "/api/info"), d.self ? 6000 : 3000)).json();
+    Object.assign(d, {id: info.id, name: info.name, kind: info.kind, type: info.type, host: info.host, ip: info.ip || d.ip, info, online: true, paired: info.paired, seen: Date.now()});
+    if (d.paired) { try { d.books = (await (await get(withT(d, "/api/books"), 8000)).json()).books.filter(b => b.file); } catch (e) {} }
+    else d.books = d.books || [];
+  } catch (e) { d.online = false; d.paired = !!d.token; }
+  return d;
 }
-function job(name) { const d = document.createElement("div"); d.className = "job"; d.innerHTML = `<div class="name"></div><div class="st">reading...</div><div class="bar"><i></i></div>`; d.querySelector(".name").textContent = name; $("#log").prepend(d); return d; }
+async function flushPending() {   // deletes that were asked for while a device was away
+  for (const p of store.pending.slice()) { const d = S.devs[p.id]; if (d && d.online && d.paired) { try { await post(d, "/api/delete?file=" + encodeURIComponent(p.file)); } catch (e) {} store.pending = store.pending.filter(q => q !== p); } }
+  save();
+}
+async function refresh(scan) {
+  await probe(S.self);
+  if (!S.self.paired) { S.pairFor = S.self; return render(); }
+  remember(S.self);
+  let peers = [];
+  try { const j = await (await get(withT(S.self, "/api/devices" + (scan ? "?scan=1" : "")))).json(); peers = j.peers; S.scanning = j.scanning; } catch (e) {}
+  const want = {};   // by ip: found now, or remembered from before
+  for (const p of peers) want[p.ip] = {ip: p.ip, host: p.host};
+  for (const r of Object.values(store.devs)) if (r.id !== S.self.id && !want[r.ip]) want[r.ip] = r;
+  const devs = {[S.self.id]: S.self};
+  await Promise.all(Object.values(want).map(async w => {
+    const old = Object.values(store.devs).find(r => r.ip === w.ip) || {};
+    const d = await probe({...old, ...w, token: old.token, self: false});
+    if (d.id && d.id !== S.self.id) { devs[d.id] = d; if (d.token || old.id) remember(d); }
+  }));
+  S.devs = devs; await flushPending(); render();
+  if (S.scanning) setTimeout(() => refresh(false), 3500);   // the device's network scan takes a few seconds
+}
+async function boot() {
+  S.self = {self: true, ip: location.hostname};
+  try {
+    const info = await (await get("/api/info", 6000)).json();
+    S.self.token = (store.devs[info.id] || {}).token || "";
+  } catch (e) { $("#app").innerHTML = `<div class="pairwrap"><div class="paircard"><h1>Perch is not answering</h1><p class="dim">Check that the device is awake and on this network, then reload.</p></div></div>`; return; }
+  S.devs = {}; await refresh(true);
+}
+
+// ---- covers: the board's RGB565 sidecar as a data URL, cached per device and file
+const covers = {};
+async function coverUrl(d, file) {
+  const k = d.id + "/" + file; if (k in covers) return covers[k];
+  try {
+    const v = new DataView(await (await get(withT(d, "/api/cover?file=" + encodeURIComponent(file)), 8000)).arrayBuffer());
+    if (v.getUint8(0) !== 0x50 || v.getUint8(1) !== 0x43) throw 0;
+    const w = v.getUint8(2), h = v.getUint8(3), c = document.createElement("canvas"); c.width = w; c.height = h;
+    const g = c.getContext("2d"), im = g.createImageData(w, h), px = im.data;
+    for (let i = 0, o = 4; i < w * h; i++, o += 2) { const p = v.getUint16(o, true); px[i * 4] = (p >> 8) & 0xF8; px[i * 4 + 1] = (p >> 3) & 0xFC; px[i * 4 + 2] = (p << 3) & 0xF8; px[i * 4 + 3] = p === 0xF81F ? 0 : 255; }
+    g.putImageData(im, 0, 0); return covers[k] = c.toDataURL();
+  } catch (e) { return covers[k] = null; }
+}
+const TINTS = ["#b9532f", "#2b2d42", "#2f6f5e", "#7a4b8f", "#8a6d1f", "#3b5b92", "#9a3b4f"];
+const tint = t => { let h = 0; for (const c of t) h = (h * 31 + c.charCodeAt(0)) >>> 0; return TINTS[h % TINTS.length]; };
+const initials = t => (t.match(/\b[A-Za-z0-9]/g) || ["?"]).filter((c, i, a) => true).slice(0, 2).join("").toUpperCase();
+const coverTile = (b, cls = "") => `<div class="cover ${cls}" style="background:${tint(b.title)}" data-cover="${esc(b.file)}">${esc(initials(b.title))}</div>`;
+function loadCovers() {
+  document.querySelectorAll("[data-cover]").forEach(async el => {
+    const b = library().find(x => x.file === el.dataset.cover); if (!b) return;
+    const src = b.on.find(o => o.d.online && o.d.paired && o.cover); if (!src) return;
+    const url = await coverUrl(src.d, b.file); if (url && el.isConnected) { el.innerHTML = `<img alt="" src="${url}">`; el.style.background = "none"; }
+  });
+}
+
+// ---- the merged library: one entry per book, with every device that holds it
+function library() {
+  const m = {};
+  for (const d of Object.values(S.devs)) for (const b of d.books || []) {
+    const e = m[b.file] = m[b.file] || {file: b.file, title: b.title, author: b.author, size: b.size, on: []};
+    e.on.push({d, pct: b.pct, cover: b.cover});
+  }
+  const list = Object.values(m); for (const e of list) e.pct = Math.max(...e.on.map(o => o.pct));
+  return list.sort((a, b) => a.title.localeCompare(b.title));
+}
+const progress = (pct, cls = "") => pct < 0 ? `<span class="new">NEW</span>` : pct === 0 ? `<span class="s13 dim">Not started</span>` : `<span class="prog"><span class="bar ${cls}"><i style="width:${pct}%"></i></span><b>${pct}%</b></span>`;
+const chip = o => `<span class="chip${o.d.online ? "" : " off"}" title="${esc(o.d.name)}${o.d.online ? "" : " (offline)"}">${ic(o.d.type === "epaper" ? "epaper" : "lcd", 12, o.d.online ? "#14141a" : "#6a6a75")}${esc(short(o.d))}</span>`;
+
+// ---- views
+function header() {
+  return `<header class="top"><a class="brand" href="#/"><span class="logo">${ic("bird", 19, "#fff")}</span><b>Perch</b><i></i><span class="dim">Portal</span></a>
+    <div class="row" style="gap:16px"><span class="paired">${ic("shield", 16, "#15803d")}<span>Paired with <b class="b" style="color:var(--text)">${esc(S.self.host || location.host)}</b></span></span>
+    <button class="btn forget" data-act="forget">Forget this browser</button><button class="pairpill" data-act="forget" title="Forget this browser">${ic("shield", 14, "#15803d")}Paired</button></div></header>`;
+}
+function devCard(d) {
+  const i = d.info || {}, bat = i.battery || {}, st = i.storage || {}, on = d.online;
+  const batTxt = bat.present === false ? "–" : (bat.pct != null ? bat.pct + "%" : "–"), batLab = !on ? "When last seen" : bat.present === false ? "No battery" : bat.charging ? "Charging" : bat.usb ? "On USB" : "Battery";
+  const foot = d.self ? `<span class="tag">Serving this page</span>` : !on ? "" : d.paired ? `<a class="b" href="http://${esc(d.ip)}/" target="_blank" rel="noopener">Open</a>` : `<a class="b" href="#" data-act="pair" data-id="${esc(d.id)}">Pair</a>`;
+  const seen = d.seen ? new Date(d.seen).toLocaleString([], {weekday: "short", hour: "numeric", minute: "2-digit"}) : "";
+  return `<article class="dev"><div class="row toprow" style="gap:12px"><span class="tile">${ic(d.type === "epaper" ? "epaper" : "lcd", 22, on ? "#14141a" : "#6a6a75", 1.75)}</span>
+    <div class="grow full"><div class="name ell">${esc(d.name)}</div><div class="s13 dim">${esc(d.kind || "")}</div></div>
+    <span class="pill ${on ? "on" : "off"}"><i></i>${on ? "Online" : "Offline"}</span></div>
+    <div class="mini"><div class="name ell">${esc(d.name)}</div><div class="s13 dim ell">${on ? esc(batTxt) + " · " + (st.free != null ? fmt(st.free) + " free" : "") : "Offline"}</div></div>
+    <div class="stats full"><div><b>${ic(bat.charging ? "charging" : "battery", 16)}${esc(batTxt)}</b><span>${batLab}</span></div>
+      <div><b>${ic("drive", 16)}${st.free != null ? fmt(st.free) : "–"}</b><span>${st.sd ? "SD card free" : "Flash free"}</span></div>
+      <div><b>${ic("book", 16)}${d.paired && d.online && d.books ? d.books.length : i.books != null ? i.books : (d.books || []).length}</b><span>Books</span></div></div>
+    <div class="foot full"><span class="ell">${on ? esc((d.host || "") + " · " + d.ip) : ic("wifioff", 14) + " Last seen " + esc(seen)}</span>${foot}</div></article>`;
+}
+function libraryView() {
+  const devs = Object.values(S.devs).sort((a, b) => (b.self - a.self) || (b.online - a.online) || a.name.localeCompare(b.name));
+  const all = library(), q = S.query.trim().toLowerCase(), list = q ? all.filter(b => (b.title + " " + b.author).toLowerCase().includes(q)) : all;
+  const rows = list.map(b => `<a class="book" href="#/book/${encodeURIComponent(b.file)}">${coverTile(b)}
+      <div class="mid"><div class="ti ell">${esc(b.title)}</div><div class="s13 dim ell">${esc([b.author, fmt(b.size)].filter(Boolean).join(" · "))}</div>
+        <div class="under"><span class="chips">${b.on.slice(0, 2).map(chip).join("")}${b.on.length > 2 ? `<span class="chip">+${b.on.length - 2}</span>` : ""}</span>${progress(b.pct)}</div></div>
+      <div class="chips">${b.on.map(chip).join("")}</div><div class="pr">${progress(b.pct)}</div><span class="more" aria-label="More actions">${ic("dots", 18, "#6a6a75")}</span></a>`).join("");
+  return header() + `<main>
+    <section><div class="head"><div class="t"><h2>Devices</h2><span class="dim">${online().length} of ${devs.length} online</span></div>
+      <button class="btn scan" data-act="scan" ${S.scanning ? "disabled" : ""}>${ic("refresh", 16)}<span>${S.scanning ? "Scanning…" : "Scan again"}</span></button></div>
+      <div class="devs">${devs.map(devCard).join("")}</div></section>
+    <section class="lib"><div class="head" style="min-height:40px"><div class="t"><h2>Library</h2><span class="dim">${all.length} ${all.length === 1 ? "book" : "books"}</span></div>
+      <div class="row" style="gap:12px"><label class="search">${ic("search", 16)}<input id="q" type="search" placeholder="Search title or author" value="${esc(S.query)}" aria-label="Search title or author"></label>
+      <button class="btn lg pri addbtn" data-act="add">${ic("plus", 16)}Add books</button></div></div>
+      <button class="drop" data-act="choose">${ic("upload", 20)}<span><b>Drop EPUBs here</b> or choose files. They are converted in your browser, and only the text is sent to your devices.</span></button>
+      <div class="list"><div class="cols"><span></span><span>Book</span><span>On</span><span>Progress</span><span></span></div>
+        ${rows || `<div class="empty">${all.length ? "No book matches that search" : "No books yet. Add an EPUB to get started."}</div>`}</div></section>
+  </main><button class="btn lg pri fab" data-act="add">${ic("plus", 18)}Add books</button>`;
+}
+function bookView(file) {
+  const b = library().find(x => x.file === file);
+  if (!b) return header() + `<main class="bookmain"><a class="back" href="#/">${ic("left", 18, "#6a6a75")}Library</a><div class="empty">That book is not on any of your devices.</div></main>`;
+  const det = S.detail && S.detail.file === file ? S.detail : null, by = det ? det.by : {};
+  const chs = det ? det.chapters : [], now = det ? det.ch : -1;
+  const numbered = chs.filter(t => /^(chapter|part)\b|^\d/i.test(t)).length > chs.length / 2;   // titles that count themselves need no number column
+  let from = 0, to = chs.length;
+  if (!S.allCh && chs.length > 5) { from = Math.max(0, Math.min(chs.length - 5, (now < 0 ? 0 : now) - 2)); to = from + 5; }
+  const chRows = chs.slice(from, to).map((t, k) => { const i = from + k; return `<div class="chap${i === now ? " now" : ""}">${numbered ? "" : `<span class="n">${i + 1}</span>`}<span class="grow ell">${esc(t)}</span><span class="s13 dim">${i === now ? "Reading now" : now >= 0 && i < now ? "Read" : ""}</span></div>`; }).join("");
+  const copies = b.on.map(o => {
+    const d = o.d, c = by[d.id], where = c && c.ch >= 0 && chs[c.ch] ? " · " + chs[c.ch] : "";
+    const pr = !d.online ? `<span class="s13 dim">${o.pct < 0 ? "Not opened" : o.pct + "%"} when last seen</span>` : o.pct < 0 ? `<span class="new">NEW</span>` : `<span class="row" style="gap:10px;min-width:0"><span class="bar"><i style="width:${o.pct}%"></i></span><span class="s13 ell"><b class="b">${o.pct}%</b><span class="dim">${esc(where)}</span></span></span>`;
+    return `<div class="copy"><span class="tile">${ic(d.type === "epaper" ? "epaper" : "lcd", 22, d.online ? "#14141a" : "#6a6a75", 1.75)}</span>
+      <div style="min-width:0"><div class="b ell" style="line-height:20px;${d.online ? "" : "color:var(--dim)"}">${esc(d.name)}</div><div class="s13 dim ell">${esc(d.kind || "")} · ${d.online ? "online" : "offline"}</div></div>
+      <div class="pr">${pr}</div><div class="act row" style="justify-content:flex-end"><button class="btn" data-act="remove" data-id="${esc(d.id)}" data-file="${esc(file)}" ${d.online && d.paired ? "" : "disabled"}>${d.online ? (d.paired ? "Remove" : "Not paired") : "Offline"}</button></div></div>`;
+  }).join("");
+  const away = b.on.filter(o => !o.d.online).map(o => o.d.name);
+  const added = det && det.added > 1e9 ? new Date(det.added * 1000).toLocaleDateString([], {day: "numeric", month: "short", year: "numeric"}) : "–";
+  return header() + `<main class="bookmain" style="padding-top:24px;gap:24px"><a class="back" href="#/">${ic("left", 18, "#6a6a75")}Library</a>
+    <div class="bookpage"><div class="left">${coverTile(b, "bigcover")}
+        <div class="facts grow"><div><span class="cap">Size</span><b>${fmt(b.size)}</b></div><div><span class="cap">Chapters</span><b>${det ? det.nch : "–"}</b></div><div><span class="cap">Added</span><b>${added}</b></div><div><span class="cap">Format</span><b>Perch text</b></div></div></div>
+      <div style="display:flex;flex-direction:column;gap:28px;min-width:0"><div style="display:flex;flex-direction:column;gap:6px"><h1>${esc(b.title)}</h1><div class="dim" style="font-size:17px;line-height:24px">${esc(b.author)}</div></div>
+        <section class="sub" style="gap:12px"><div class="row" style="justify-content:space-between;align-items:baseline"><h2>On your devices</h2><span class="s13 dim">${b.on.length} ${b.on.length === 1 ? "copy" : "copies"}</span></div><div class="panel">${copies}</div></section>
+        <section class="sub" style="gap:12px"><div class="row" style="justify-content:space-between;align-items:baseline"><h2>Chapters</h2>${chs.length > 5 ? `<a class="s13 b" href="#" data-act="allch">${S.allCh ? "Show fewer" : "Show all " + chs.length}</a>` : ""}</div>
+          <div class="panel">${chRows || `<div class="chap dim">${det ? "No chapters found" : "Loading…"}</div>`}</div></section>
+        <div class="row delrow" style="justify-content:space-between;gap:16px;padding-top:4px"><span class="s13 dim">Deleting removes the book from every online device now${away.length ? ", and from " + esc(away.join(" and ")) + " the next time it comes online" : ""}.</span>
+          <button class="btn lg danger" data-act="delall" data-file="${esc(file)}">${ic("trash", 16, "#c8102e")}Delete from all devices</button></div>
+      </div></div></main>`;
+}
+async function loadDetail(file) {   // chapters from the first device that answers, and where each device's reader is
+  const b = library().find(x => x.file === file); if (!b) return;
+  const det = {file, chapters: [], nch: 0, ch: -1, added: 0, by: {}}; let best = -2;
+  await Promise.all(b.on.filter(o => o.d.online && o.d.paired).map(async o => {
+    try { const j = await (await get(withT(o.d, "/api/book?file=" + encodeURIComponent(file)), 15000)).json(); det.by[o.d.id] = j; if (!det.chapters.length) { det.chapters = j.chapters; det.nch = j.nch; det.added = j.added; } if (j.pct > best) { best = j.pct; det.ch = j.ch; } } catch (e) {}
+  }));
+  if (location.hash === "#/book/" + encodeURIComponent(file)) { S.detail = det; render(); }
+}
+function pairView() {
+  const d = S.pairFor, peer = !d.self, i = d.info || {};
+  return `<div class="pairwrap"><div class="row" style="gap:12px"><span class="logo" style="width:40px;height:40px;border-radius:11px">${ic("bird", 23, "#fff")}</span><span style="font-size:22px;font-weight:700">Perch</span></div>
+    <form class="paircard" id="pairform" autocomplete="off"><div style="display:flex;flex-direction:column;gap:8px;text-align:center"><h1>Pair this browser</h1>
+      <p class="dim">Enter the code shown on your Perch. On the device, open <b class="b" style="color:var(--text)">Settings, then Portal</b>.</p></div>
+      <div class="devchip"><span class="tile" style="width:36px;height:36px;border-radius:10px;background:none">${ic(d.type === "epaper" ? "epaper" : "lcd", 18, "#14141a", 1.75)}</span>
+        <span class="grow"><span class="b ell" style="display:block;line-height:20px">${esc(d.name || "Perch")}</span><span class="s13 dim ell" style="display:block">${esc((d.host || "") + " · " + (d.ip || ""))}</span></span><span class="pill on"><i></i>Online</span></div>
+      <div class="code" role="group" aria-label="Pairing code">${[0, 1, 2].map(k => `<input inputmode="numeric" aria-label="Digit ${k + 1}">`).join("")}<i></i>${[3, 4, 5].map(k => `<input inputmode="numeric" aria-label="Digit ${k + 1}">`).join("")}</div>
+      <div class="row s13 dim" id="left" style="justify-content:center;gap:6px;margin-top:-8px">${ic("timer", 14, "#6a6a75")}<span>${i.pairing ? "A new code appears in 0:" + String(i.left).padStart(2, "0") : "Open Settings, then Portal on the device to see the code"}</span></div>
+      <label class="keep"><input type="checkbox" id="keep" checked><span class="box on">${ic("check", 14, "#fff", 3)}</span><span>Keep this browser paired for 30 days</span></label>
+      <div class="msg" id="pairmsg"></div>
+      <button class="btn pri wide" type="submit">Pair</button>${peer ? `<button class="btn wide" type="button" data-act="pairback">Not now</button>` : ""}</form>
+    <div class="row s13 dim" style="gap:8px;text-align:center">${ic("lock", 14, "#6a6a75")}No account needed. The code and your books stay on your own network.</div></div>`;
+}
+function addDialog() {
+  const a = S.add, devs = Object.values(S.devs).sort((x, y) => (y.self - x.self) || x.name.localeCompare(y.name));
+  const n = {ready: 0, conv: 0, skip: 0}; for (const f of a.items) { if (f.status === "ready" || f.status === "sending" || f.status === "sent") n.ready++; else if (f.status === "converting" || f.status === "queued") n.conv++; else n.skip++; }
+  const files = a.items.map((f, k) => {
+    const ok = f.status === "ready" || f.status === "sent", err = f.status === "error";
+    const st = f.status === "converting" || f.status === "queued" ? `<span class="thin busy"><i></i></span><span>${f.status === "queued" ? "Waiting" : "Converting…"}</span>` : f.status === "sending" ? `<span class="thin"><i style="width:${f.pct | 0}%"></i></span><span>${esc(f.msg)}</span>` : esc(f.msg);
+    return `<div class="file${err ? " err" : ""}"><span class="fic${ok ? " ok" : err ? " err" : ""}">${ic(ok ? "check" : err ? "alert" : "book", 18, ok ? "#15803d" : err ? "#c8102e" : "#0071e3")}</span>
+      <span class="grow"><span class="b ell" style="display:block;line-height:20px">${esc(f.title || f.name)}</span><span class="st">${st}</span></span>
+      <button class="rm" aria-label="Remove" data-act="rmfile" data-k="${k}" ${a.sending ? "disabled" : ""}>${ic("x", 16, "#6a6a75")}</button></div>`;
+  }).join("");
+  const targets = devs.map(d => {
+    const can = d.online && d.paired, sel = can && a.targets.has(d.id), st = (d.info || {}).storage || {};
+    return `<label class="target${sel ? " sel" : ""}${can ? "" : " dis"}"><input type="checkbox" data-target="${esc(d.id)}" ${sel ? "checked" : ""} ${can && !a.sending ? "" : "disabled"}><span class="box">${sel ? ic("check", 14, "#fff", 3) : ""}</span>
+      <span class="grow"><span class="b" style="display:block;line-height:20px">${esc(d.name)}</span><span class="s13 dim ell" style="display:block">${!d.online ? "Offline. It will not receive these now" : !d.paired ? "Not paired with this browser" : fmt(st.free || 0) + " free"}</span></span>${ic(d.type === "epaper" ? "epaper" : "lcd", 18, can ? "#14141a" : "#6a6a75", 1.75)}</label>`;
+  }).join("");
+  const count = [...a.targets].filter(id => S.devs[id] && S.devs[id].online && S.devs[id].paired).length;
+  const sum = [n.ready && n.ready + " ready", n.conv && n.conv + " converting", n.skip && n.skip + " skipped"].filter(Boolean).join(" · ") || "Choose EPUB files to add";
+  return `<div class="scrim" data-act="closeadd"><div class="dialog" role="dialog" aria-label="Add books"><span class="grab"></span>
+    <div class="row" style="justify-content:space-between"><h2>Add books</h2><button class="x" aria-label="Close" data-act="closeadd">${ic("x", 18)}</button></div>
+    ${files ? `<div>${files}</div>` : ""}
+    <button class="morefiles" data-act="choose" ${a.sending ? "disabled" : ""}>${ic("plus", 16)}${a.items.length ? "Add more files" : "Choose EPUB files"}</button>
+    <div style="display:flex;flex-direction:column;gap:10px"><div class="cap">Send to</div><div style="display:flex;flex-direction:column;gap:8px">${targets}</div></div>
+    <div class="dfoot"><span class="s13 dim">${sum}</span><div class="row" style="gap:12px;flex:1;justify-content:flex-end"><button class="btn lg" data-act="closeadd">${a.done ? "Done" : "Cancel"}</button>
+      <button class="btn lg pri" data-act="send" ${!a.sending && n.ready && !n.conv && count && !a.done ? "" : "disabled"}>${ic("send", 16)}${a.sending ? "Sending…" : "Send to " + count + (count === 1 ? " device" : " devices")}</button></div></div></div></div>`;
+}
+
+function render() {
+  const app = $("#app"), q = document.activeElement && document.activeElement.id === "q", pos = q ? document.activeElement.selectionStart : 0;
+  const m = /^#\/book\/(.+)$/.exec(location.hash);
+  app.innerHTML = S.pairFor ? pairView() : (m ? bookView(decodeURIComponent(m[1])) : libraryView()) + (S.add ? addDialog() : "");
+  if (q && $("#q")) { $("#q").focus(); $("#q").setSelectionRange(pos, pos); }
+  if (S.pairFor) wirePair(); else loadCovers();
+}
+function toast(t) { clearTimeout(S.toastT); let el = $(".toast"); if (!el) { el = document.createElement("div"); el.className = "toast"; document.body.appendChild(el); } el.textContent = t; S.toastT = setTimeout(() => el.remove(), 3500); }
+
+// ---- pairing form: six boxes that behave like one field
+function wirePair() {
+  const boxes = [...document.querySelectorAll(".code input")], d = S.pairFor;
+  boxes.forEach((b, i) => {
+    b.oninput = () => {   // one digit a box; several at once (autofill, fast typing) spill into the boxes that follow
+      const t = b.value.replace(/\D/g, ""); b.value = t.slice(0, 1);
+      [...t.slice(1)].forEach((c, k) => { if (boxes[i + 1 + k]) boxes[i + 1 + k].value = c; });
+      if (t) (boxes[Math.min(i + t.length, 5)] || b).focus();
+    };
+    b.onkeydown = e => { if (e.key === "Backspace" && !b.value && boxes[i - 1]) { boxes[i - 1].focus(); boxes[i - 1].value = ""; } };
+    b.onpaste = e => { e.preventDefault(); const t = (e.clipboardData.getData("text") || "").replace(/\D/g, "").slice(0, 6); [...t].forEach((c, k) => { if (boxes[k]) boxes[k].value = c; }); (boxes[Math.min(t.length, 5)] || b).focus(); };
+  });
+  if (boxes[0]) boxes[0].focus();
+  $("#keep").onchange = e => e.target.nextElementSibling.classList.toggle("on", e.target.checked);
+  $("#keep").nextElementSibling.onclick = () => {};
+  $("#pairform").onsubmit = async e => {
+    e.preventDefault(); const code = boxes.map(b => b.value).join(""), msg = $("#pairmsg");
+    if (code.length !== 6) { msg.textContent = "Enter all six digits"; return; }
+    try {
+      const r = await fetch(base(d) + "/api/pair?code=" + code + "&keep=" + ($("#keep").checked ? 1 : 0), {method: "POST"});
+      if (!r.ok) { msg.textContent = await r.text(); boxes.forEach(b => b.value = ""); boxes[0].focus(); return; }
+      d.token = (await r.json()).token; d.paired = true; remember(d); S.pairFor = null; stopPairPoll(); await refresh(true);
+    } catch (err) { msg.textContent = "Could not reach the device"; }
+  };
+  stopPairPoll(); S.pairPoll = setInterval(async () => {   // keep the countdown honest
+    try { const i = await (await get(base(d) + "/api/info", 2500)).json(); d.info = i; const el = $("#left span"); if (el) el.textContent = i.pairing ? "A new code appears in 0:" + String(i.left).padStart(2, "0") : "Open Settings, then Portal on the device to see the code"; } catch (e) {}
+  }, 2000);
+}
+function stopPairPoll() { clearInterval(S.pairPoll); }
+
+// ---- adding books: convert here, then send the text (and cover) to each chosen device
 let hyphReady = false;
-async function addFile(file) {
-  const j = job(file.name), st = j.querySelector(".st"), bar = j.querySelector(".bar i");
+function openAdd(files) {
+  if (!S.add) S.add = {items: [], targets: new Set(usable().map(d => d.id)), sending: false, done: false};
+  if (files) for (const f of files) {
+    const it = {name: f.name, file: f, status: /\.epub$/i.test(f.name) ? "queued" : "error", msg: "Not an EPUB. Only .epub files can be added"};
+    S.add.items.push(it);
+  }
+  render(); pump();
+}
+async function pump() {   // one conversion at a time
+  const a = S.add; if (!a || a.busy) return; const it = a.items.find(f => f.status === "queued"); if (!it) return;
+  a.busy = true; it.status = "converting"; render();
   try {
     if (!hyphReady) { try { BookConvert.setHyphenationPatterns(await (await fetch("/hyph-en-us.txt")).text()); } catch (e) {} hyphReady = true; }
-    const zip = await JSZip.loadAsync(await file.arrayBuffer());
-    st.textContent = "converting..."; bar.style.width = "30%";
-    const b = await BookConvert.convertEpub(zip);
-    if (!b.chapters.length) throw new Error("no text found in this EPUB");
-    const name = BookConvert.slug(b.title);
-    st.textContent = `${b.title} — ${b.chapters.length} chapters, ${fmt(b.text.length)}. Uploading...`; bar.style.width = "50%";
-    await new Promise((res, rej) => {   // XHR for upload progress
-      const x = new XMLHttpRequest(); x.open("POST", "/api/upload");
-      x.upload.onprogress = e => { if (e.lengthComputable) bar.style.width = 50 + 50 * e.loaded / e.total + "%"; };
-      x.onload = () => x.status === 200 ? res() : rej(new Error(x.responseText || ("upload failed (" + x.status + ")")));
-      x.onerror = () => rej(new Error("upload failed"));
-      const fd = new FormData(); fd.append("file", new Blob([b.text], {type: "text/plain"}), name); x.send(fd);
-    });
-    if (b.cover) {   // cover thumbnail as a sidecar; a book without one just keeps its initials tile
-      try {
-        st.textContent = "cover..."; const cov = await BookConvert.coverBytes(zip, b.cover);
-        if (cov) { const fd = new FormData(); fd.append("file", new Blob([cov]), name.replace(/\.txt$/, ".cov")); await fetch("/api/upload", {method: "POST", body: fd}); }
-      } catch (e) { console.warn("cover skipped:", e); }
-    }
-    bar.style.width = "100%"; j.classList.add("ok"); st.textContent = `${b.title} — ${b.chapters.length} chapters, ${fmt(b.text.length)}. Saved as ${name}`;
-  } catch (e) { j.classList.add("err"); st.textContent = e.message; }
-  refresh(); setTimeout(refresh, 2500);   // the board may still be closing the upload connection
+    const zip = await JSZip.loadAsync(await it.file.arrayBuffer()), b = await BookConvert.convertEpub(zip);
+    if (!b.chapters.length) throw new Error("No text found in this EPUB");
+    it.title = b.title; it.text = b.text; it.slug = BookConvert.slug(b.title); it.cov = null;
+    if (b.cover) { try { it.cov = await BookConvert.coverBytes(zip, b.cover); } catch (e) {} }
+    it.status = "ready"; it.msg = [b.author, fmt(b.text.length), "ready"].filter(Boolean).join(" · ");
+  } catch (e) { it.status = "error"; it.msg = e.message || "Could not read this file"; }
+  a.busy = false; if (S.add === a) { render(); pump(); }
 }
-async function addFiles(files) { for (const f of files) if (/\.epub$/i.test(f.name)) await addFile(f); else job(f.name).querySelector(".st").textContent = "not an EPUB"; }
-const drop = $("#drop");
-drop.onclick = () => $("#pick").click();
-$("#pick").onchange = e => { addFiles(e.target.files); e.target.value = ""; };
-["dragenter", "dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
-["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("over"); }));
-drop.addEventListener("drop", e => addFiles(e.dataTransfer.files));
-document.addEventListener("dragover", e => e.preventDefault()); document.addEventListener("drop", e => e.preventDefault());
-refresh();
+function upload(d, name, blob, onp) {
+  return new Promise((res, rej) => {
+    const x = new XMLHttpRequest(); x.open("POST", withT(d, "/api/upload"));
+    x.upload.onprogress = e => { if (e.lengthComputable && onp) onp(e.loaded / e.total); };
+    x.onload = () => x.status === 200 ? res() : rej(new Error(x.responseText || "upload failed (" + x.status + ")")); x.onerror = () => rej(new Error("upload failed"));
+    const fd = new FormData(); fd.append("file", blob, name); x.send(fd);
+  });
+}
+async function sendAll() {
+  const a = S.add, devs = [...a.targets].map(id => S.devs[id]).filter(d => d && d.online && d.paired); a.sending = true; let failed = 0;
+  for (const it of a.items.filter(f => f.status === "ready")) {
+    it.status = "sending"; let done = 0, bad = [];
+    for (const d of devs) {
+      it.msg = "Sending to " + d.name; it.pct = 100 * done / devs.length; render();
+      try {
+        await upload(d, it.slug, new Blob([it.text], {type: "text/plain"}), p => { it.pct = 100 * (done + p) / devs.length; const i = $(".file .thin:not(.busy) i"); if (i) i.style.width = it.pct + "%"; });
+        if (it.cov) { try { await upload(d, it.slug.replace(/\.txt$/, ".cov"), new Blob([it.cov])); } catch (e) {} }
+      } catch (e) { bad.push(d.name); }
+      done++;
+    }
+    if (bad.length) { it.status = "error"; it.msg = "Not sent to " + bad.join(", "); failed++; } else { it.status = "sent"; it.msg = "Sent to " + devs.map(d => d.name).join(", "); }
+    render();
+  }
+  a.sending = false; a.done = true; render(); await refresh(false);
+  if (!failed && S.add === a) { S.add = null; render(); toast("Books sent"); }
+}
+
+// ---- actions
+document.addEventListener("click", async e => {
+  const t = e.target.closest("[data-act]"); if (!t) return; const act = t.dataset.act;
+  if (act === "closeadd") { if (e.target !== t && !e.target.closest("button[data-act=closeadd]")) return; if (S.add && S.add.sending) return; S.add = null; return render(); }
+  e.preventDefault();
+  if (act === "scan") { S.scanning = true; render(); refresh(true); }
+  else if (act === "add") openAdd();
+  else if (act === "choose") $("#pick").click();
+  else if (act === "rmfile") { S.add.items.splice(+t.dataset.k, 1); render(); }
+  else if (act === "send") sendAll();
+  else if (act === "allch") { S.allCh = !S.allCh; render(); }
+  else if (act === "pair") { S.pairFor = S.devs[t.dataset.id]; render(); }
+  else if (act === "pairback") { S.pairFor = null; stopPairPoll(); render(); }
+  else if (act === "forget") { if (!confirm("Forget this browser? You will need the code on the device to pair again.")) return; try { await post(S.self, "/api/unpair"); } catch (err) {} S.self.token = ""; S.self.paired = false; remember(S.self); S.pairFor = S.self; render(); }
+  else if (act === "remove") {
+    const d = S.devs[t.dataset.id], f = t.dataset.file; if (!confirm("Remove this book from " + d.name + "?")) return;
+    try { await post(d, "/api/delete?file=" + encodeURIComponent(f)); toast("Removed from " + d.name); } catch (err) { toast("Could not remove it"); }
+    await refresh(false); if (!library().some(b => b.file === f)) location.hash = "#/"; else loadDetail(f);
+  } else if (act === "delall") {
+    const f = t.dataset.file, b = library().find(x => x.file === f); if (!b || !confirm("Delete \"" + b.title + "\" from all your devices?")) return;
+    for (const o of b.on) { if (o.d.online && o.d.paired) { try { await post(o.d, "/api/delete?file=" + encodeURIComponent(f)); } catch (err) {} } else { store.pending.push({id: o.d.id, file: f}); o.d.books = (o.d.books || []).filter(x => x.file !== f); remember(o.d); } }
+    save(); toast("Deleted"); location.hash = "#/"; refresh(false);
+  }
+});
+document.addEventListener("change", e => {
+  if (e.target.dataset.target && S.add) { const id = e.target.dataset.target; e.target.checked ? S.add.targets.add(id) : S.add.targets.delete(id); render(); }
+  if (e.target.id === "pick") { openAdd(e.target.files); e.target.value = ""; }
+});
+document.addEventListener("input", e => { if (e.target.id === "q") { S.query = e.target.value; render(); } });
+let drag = 0;
+document.addEventListener("dragenter", e => { e.preventDefault(); if (++drag === 1) document.body.classList.add("dragging"); });
+document.addEventListener("dragleave", e => { e.preventDefault(); if (--drag <= 0) { drag = 0; document.body.classList.remove("dragging"); } });
+document.addEventListener("dragover", e => e.preventDefault());
+document.addEventListener("drop", e => { e.preventDefault(); drag = 0; document.body.classList.remove("dragging"); if (!S.pairFor && e.dataTransfer.files.length) openAdd(e.dataTransfer.files); });
+window.addEventListener("hashchange", () => { S.allCh = false; S.detail = null; render(); const m = /^#\/book\/(.+)$/.exec(location.hash); if (m) loadDetail(decodeURIComponent(m[1])); window.scrollTo(0, 0); });
+boot().then(() => { const m = /^#\/book\/(.+)$/.exec(location.hash); if (m && !S.pairFor) loadDetail(decodeURIComponent(m[1])); });
+setInterval(() => { if (!S.pairFor && !S.add && document.visibilityState === "visible") refresh(false); }, 30000);
 </script>
 </body>
 </html>

@@ -9,7 +9,7 @@
 
 Preferences prefs;
 SemaphoreHandle_t netMutex = xSemaphoreCreateMutex();   // one TLS session at a time (heap + reliability)
-struct Settings { String ssid, pass; int bright = 220; int rot = 0 /* 0..3 quarter turns */; bool fahrenheit = false, dark = true, roboSound = true, ambient = false, wifiOn = true, airplane = false; int sleepMin = 0 /* 0 = never */, lightMin = 0, deepMin = 0 /* battery sleep, minutes idle */, accent = 0; long tzOff = 0; String notes, place = "Kalamassery, Kerala"; } cfg;
+struct Settings { String ssid, pass; int bright = 220; int rot = 0 /* 0..3 quarter turns */; bool fahrenheit = false, dark = true, roboSound = true, ambient = false, wifiOn = true, airplane = false; int sleepMin = 0 /* 0 = never */, lightMin = 0, deepMin = 0 /* battery sleep, minutes idle */, accent = 0; long tzOff = 0; String notes, place = "Kalamassery, Kerala", name = "Perch" /* shown by the portal */; } cfg;
 
 // Settings live in NVS namespace "perch". Boards flashed before the rename kept them under "robo":
 // copy the known keys across once, then drop the old namespace.

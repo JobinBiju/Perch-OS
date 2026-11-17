@@ -67,11 +67,13 @@ The refresh token is stored on the board. Playback control needs Spotify Premium
 
 ## Books
 
-Open **http://perch.local** on a phone or computer on the same Wi-Fi and drop EPUB files on the page. They are converted in the browser and only the text is uploaded. The same page lists and deletes books.
+Open **http://perch.local** on a phone or computer on the same Wi-Fi. The first time, pair the browser: on the device open **Settings → Portal** and type the 6-digit code it shows (it changes every minute). No account is involved; the code gives that browser a token, kept for 30 days if you tick the box, and **Unpair all** on the same screen revokes them.
+
+The portal lists the Perches it finds on the network, with battery, free space and book count, and one searchable library across the ones this browser is paired with. Drop EPUB files on the page or use **Add books**: they are converted in the browser, only the text is uploaded, and you choose which devices get a copy. A book's page shows its chapters, where each device's reader is, and lets you remove it from one device or all of them.
 
 Books live in `/books` on the microSD card (FAT32), or on a small flash partition when no card is inserted. The book format is UTF-8 text: `\x02Title\nAuthor\n`, then chapters starting with `\x01Title\n`, one paragraph per line. `\x03` toggles italic and `\x04` bold (from `<em>` and `<strong>`), and a soft hyphen (U+00AD) marks a hyphenation point. The converters insert soft hyphens for English books from the hyph-utf8 en-US patterns in `portal/hyph-en-us.txt`, which the board also serves to the portal page. The reader breaks lines by minimum raggedness over each paragraph (as CrossPoint Reader does) and justifies them.
 
-Each book's cover goes along as a sidecar, `name.cov` next to `name.txt`: 4 header bytes (`PC`, width, height) and a 32x48 RGB565 thumbnail that the browser scales from the EPUB's cover image. The library and the reading menu show it; books without one get a coloured tile with the title's initials. The corners carry the key colour `0xF81F`, drawn transparent, so the tile is rounded in either theme.
+Each book's cover goes along as a sidecar, `name.cov` next to `name.txt`: 4 header bytes (`PC`, width, height) and a 96x144 RGB565 image that the browser scales from the EPUB's cover. The board averages it down to its 32x48 list tile and the 48x72 tile of the portrait reading menu and rounds the corners; books without a cover get a coloured tile with the title's initials. Older 32x48 sidecars still load.
 
 Books converted with an older version keep working; drop the EPUB on the portal again to get its cover, hyphenation and accented characters. Reading progress is kept.
 

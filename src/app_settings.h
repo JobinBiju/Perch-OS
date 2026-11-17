@@ -288,17 +288,48 @@ struct BatteryScreen : Screen {
   void tick() override { if (millis() - last > 2000) { last = millis(); dirty = true; } }
 } batteryScreen;
 
+// ---------- Portal: where to browse to, and the pairing code a new browser must type (portal.h) ----------
+extern bool pairShowing; extern uint32_t pairCode; void pairTick(); int pairLeft(); int pairCount(); void pairForgetAll();
+struct PortalScreen : Screen {
+  uint32_t last = 0;
+  const char *name() override { return "Portal"; }
+  void enter() override { pairShowing = true; pairTick(); }   // codes are only accepted while this screen is open
+  void leave() override { pairShowing = false; }
+  int rowY() { return H - 48; }
+  void render() override {
+    frame.fillScreen(C.BG); drawStatusBar(); drawTitle("Portal");
+    card(MARGIN, CONTENT_Y, ROW_W, 44, C.CARD, 10);
+    if (!netConnected()) {
+      text(MARGIN + 12, CONTENT_Y + 22, "Connect Wi-Fi to use the portal", C.DIM, F12, textdatum_t::middle_left);
+    } else {
+      text(MARGIN + 12, CONTENT_Y + 14, "http://perch.local", C.TEXT, F12M, textdatum_t::middle_left);
+      text(MARGIN + 12, CONTENT_Y + 30, ("or http://" + WiFi.localIP().toString()).c_str(), C.DIM, F12, textdatum_t::middle_left);
+    }
+    // the code, large, as two groups of three; a thin bar runs down as its minute passes
+    int mid = (CONTENT_Y + 44 + rowY()) / 2; char c[8]; snprintf(c, sizeof c, "%03lu %03lu", (unsigned long)(pairCode / 1000), (unsigned long)(pairCode % 1000));
+    text(W / 2, mid - 18, "Pairing code", C.DIM, F12M, textdatum_t::bottom_center);
+    text(W / 2, mid + 14, c, C.TEXT, F40B, textdatum_t::baseline_center);
+    int bw = 120, left = pairLeft(); frame.fillSmoothRoundRect(W / 2 - bw / 2, mid + 24, bw, 4, 2, C.LINE);
+    if (left > 0) frame.fillSmoothRoundRect(W / 2 - bw / 2, mid + 24, max(4, bw * left / 60), 4, 2, C.ACCENT);
+    card(MARGIN, rowY(), ROW_W, ROW_H, C.CARD, 10);
+    textf(MARGIN + 12, rowY() + 18, C.TEXT, F16, textdatum_t::middle_left, pairCount() == 1 ? "%d browser paired" : "%d browsers paired", pairCount());
+    if (pairCount()) text(W - MARGIN - 12, rowY() + 18, "Unpair all", C.RED, F12M, textdatum_t::middle_right);
+  }
+  void tick() override { pairTick(); if (millis() - last > 1000) { last = millis(); dirty = true; } }
+  void onTap(int x, int y) override { if (pairCount() && y >= rowY() - 4 && x > W / 2) { pairForgetAll(); dirty = true; } }
+} portalScreen;
+
 void bookRelayout();   // app_book.h: the open book is laid out again when the screen turns
 // ---------- main settings list (scrollable) ----------
 struct SettingsScreen : Screen {
-  static constexpr int Y0 = CONTENT_Y, NROWS = 15;
+  static constexpr int Y0 = CONTENT_Y, NROWS = 16;
   static constexpr int TG_W = 92, TG_H = 44;
   #define SW_P (portrait() ? 16 : 22)             /* accent swatches: 16 px on a 22 px pitch, portrait 12 px on a 16 px pitch */   // accent swatches 22 px apart; 92x24 toggle, two 44 px halves
   #define SW_X0 (W - MARGIN - 10 - 5 * SW_P)   /* six swatches, the last 10 px from the card edge */
   #define SL_W (portrait() ? 64 : 120)         /* brightness slider, 12 px from the card's right edge */
   #define SL_X (W - MARGIN - 12 - SL_W)
   #define TG_X (W - MARGIN - 8 - TG_W)         /* toggle, 8 px from the card's right edge */
-  enum { R_WIFI, R_LOC, R_BRIGHT, R_SLEEP, R_LIGHT, R_DEEP, R_UNITS, R_THEME, R_ACCENT, R_FLIP, R_SOUND, R_AMBIENT, R_BATTERY, R_STORAGE, R_ABOUT };
+  enum { R_WIFI, R_LOC, R_BRIGHT, R_SLEEP, R_LIGHT, R_DEEP, R_UNITS, R_THEME, R_ACCENT, R_FLIP, R_SOUND, R_AMBIENT, R_BATTERY, R_STORAGE, R_PORTAL, R_ABOUT };
   static constexpr int SLEEP_STEPS[] = {0, 1, 2, 5, 10, 30};   // minutes; 0 = never
   static constexpr int LIGHT_STEPS[] = {0, 2, 5, 10, 30}, DEEP_STEPS[] = {0, 10, 30, 60, 120};   // battery sleep, minutes idle; 0 = never
   static int nextStep(const int *st, int n, int cur, int floor = 0) {   // the step after cur, skipping non-zero ones below floor
@@ -397,6 +428,10 @@ struct SettingsScreen : Screen {
           tile(y, C.GREEN); glyphDrive(gx, gy, C.WHITE, C.GREEN);
           label(cy, "Storage");
           value(cy, storageName()); chevron(CHEV_X, cy, C.DIM); break;
+        case R_PORTAL:
+          tile(y, C.BLUE); glyphLock(gx, gy, C.WHITE);
+          label(cy, "Portal");
+          value(cy, netConnected() ? "perch.local" : "offline"); chevron(CHEV_X, cy, C.DIM); break;
         case R_ABOUT:
           tile(y, C.DIM); glyphInfo(gx, gy, C.WHITE);
           label(cy, "About");
@@ -431,6 +466,7 @@ struct SettingsScreen : Screen {
       case R_AMBIENT: cfg.ambient = !cfg.ambient; cfgSave(); dirty = true; break;
       case R_BATTERY: pushScreen(&batteryScreen); break;
       case R_STORAGE: pushScreen(&storageScreen); break;
+      case R_PORTAL: pushScreen(&portalScreen); break;
       case R_ABOUT: pushScreen(&aboutScreen); break;
     }
   }
