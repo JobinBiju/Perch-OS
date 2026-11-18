@@ -81,7 +81,7 @@ A device saves its position when you leave the reader or it goes to sleep, and f
 
 To switch it on, open the portal, choose **Set up cloud sync**, enter your Worker's address, press **Generate** for a key and save; the page sends both to every paired device. Over USB the same is `sync <address> <key>` on the serial console. Only book file names, positions and device names leave your network.
 
-Each book's cover goes along as a sidecar, `name.cov` next to `name.txt`: 4 header bytes (`PC`, width, height) and a 160x240 RGB565 image that the browser scales from the EPUB's cover. The board averages it down to its 32x48 list tile and the 48x72 tile of the portrait reading menu and rounds the corners; books without a cover get a coloured tile with the title's initials. Older, smaller sidecars still load.
+Each book's cover goes along as a sidecar, `name.cov` next to `name.txt`: 4 header bytes (`PC`, width, height) and a 160x240 RGB565 image that the browser scales from the EPUB's cover. The board averages it down to its 32x48 list tile and the 48x72 tile of the portrait reading menu and rounds the corners; books without a cover get a coloured tile with the title's initials. Older, smaller sidecars still load. For e-paper Perches the portal also sends `name.cvl`, a 480x720 8-bit grey cover (`PL`, width and height as 16-bit little-endian) for their full-screen sleep image; this firmware accepts and deletes that file but does not use it.
 
 Books converted with an older version keep working; drop the EPUB on the portal again to get its cover, hyphenation and accented characters. Reading progress is kept.
 

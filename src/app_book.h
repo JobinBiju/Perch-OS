@@ -355,6 +355,7 @@ bool bookDelete(const String &file) {
   if (book.file == file && book.buf) { free(book.buf); book.buf = nullptr; free(book.cover); book.cover = nullptr; free(book.coverBig); book.coverBig = nullptr; book.ch = -1; book.nch = 0; book.data = book.dataEnd = nullptr; }
   prefs.begin("books", false); prefs.remove(bookKey(file).c_str()); if (prefs.getString("last", "") == file) prefs.remove("last"); prefs.end();
   bookFS->remove(String(BOOK_DIR) + "/" + coverName(file));
+  { String big = coverName(file); if (big.length()) { big.setCharAt(big.length() - 1, 'l'); big.setCharAt(big.length() - 2, 'v'); bookFS->remove(String(BOOK_DIR) + "/" + big); } }   // name.cvl, the e-paper Perch's large cover, if one was ever sent here
   return bookFS->remove(String(BOOK_DIR) + "/" + file);
 }
 

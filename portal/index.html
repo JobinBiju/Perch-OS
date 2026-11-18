@@ -150,7 +150,7 @@
 <div id="app"></div>
 <input type="file" id="pick" accept=".epub,application/epub+zip" multiple hidden>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="/convert.js?v=160"></script>
+<script src="/convert.js?v=cvl"></script>
 <script>
 // One page for every Perch on the network. Each device serves the same API and issues its own token when this browser
 // types the code shown on it; the page keeps a token per device and merges their libraries.
@@ -466,7 +466,7 @@ async function pump() {   // one conversion at a time
     const zip = await JSZip.loadAsync(await it.file.arrayBuffer()), b = await BookConvert.convertEpub(zip);
     if (!b.chapters.length) throw new Error("No text found in this EPUB");
     it.title = b.title; it.text = b.text; it.slug = BookConvert.slug(b.title); it.cov = null;
-    if (b.cover) { try { it.cov = await BookConvert.coverBytes(zip, b.cover); } catch (e) {} }
+    if (b.cover) { try { it.cov = await BookConvert.coverBytes(zip, b.cover); it.cvl = await BookConvert.coverLarge(zip, b.cover); } catch (e) {} }
     it.status = "ready"; it.msg = [b.author, fmt(b.text.length), "ready"].filter(Boolean).join(" · ");
   } catch (e) { it.status = "error"; it.msg = e.message || "Could not read this file"; }
   a.busy = false; if (S.add === a) { render(); pump(); }
@@ -488,6 +488,7 @@ async function sendAll() {
       try {
         await upload(d, it.slug, new Blob([it.text], {type: "text/plain"}), p => { it.pct = 100 * (done + p) / devs.length; const i = $(".file .thin:not(.busy) i"); if (i) i.style.width = it.pct + "%"; });
         if (it.cov) { try { await upload(d, it.slug.replace(/\.txt$/, ".cov"), new Blob([it.cov])); } catch (e) {} }
+        if (it.cvl && d.type === "epaper") { try { await upload(d, it.slug.replace(/\.txt$/, ".cvl"), new Blob([it.cvl])); } catch (e) {} }   // the full-screen cover, only where it is shown
       } catch (e) { bad.push(d.name); }
       done++;
     }

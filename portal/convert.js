@@ -1,6 +1,7 @@
 // EPUB -> Perch book text, a port of book_convert.py. Runs in the browser (portal) or in node (tests).
 // convertEpub(zip) -> {title, author, text, chapters:[{title, bytes}], cover}; `zip` is a loaded JSZip and `cover` the zip path
-// of the cover image, if any. coverBytes(zip, path) renders it as the 160x240 RGB565 sidecar the board scales its cover tiles from (browser only).
+// of the cover image, if any. coverBytes(zip, path) renders it as the 160x240 RGB565 sidecar the board scales its cover tiles from, and
+// coverLarge(zip, path) as the 480x720 grey one the e-paper Perch shows full-screen (browser only).
 // Text format: "\x02Title\nAuthor\n", chapters start with "\x01Title\n", one paragraph per line; \x03 toggles italic,
 // \x04 toggles bold; U+00AD marks a hyphenation point.
 // Call setHyphenationPatterns(text of hyph-en-us.txt) first to get soft hyphens in English books.
@@ -105,18 +106,21 @@
   }
   // Sidecar format: "PC", width, height (one byte each), then width*height RGB565 little-endian pixels.
   const COV_W = 160, COV_H = 240, COV_KEY = 0xF81F;   // 5x the board's list tile, and enough for the portal's book page; the board rounds the corners itself
-  async function coverBytes(zip, path) {
+  // the cover image drawn to fill a w x h canvas (scaled so both sides are covered, the overflow cropped); null without one
+  async function coverCanvas(zip, path, w, h) {
     const f = zip.file(path); if (!f) return null;
     let img = await createImageBitmap(new Blob([await f.async("arraybuffer")]));
-    const sc = Math.max(COV_W / img.width, COV_H / img.height);   // cover fit: scale so both sides are filled, crop the overflow
-    let sw = img.width * sc, sh = img.height * sc;
-    while (img.width > 2 * sw) {   // halve in steps: a single drawImage from a 1600 px scan to 160 px aliases badly
+    const sc = Math.max(w / img.width, h / img.height), sw = img.width * sc, sh = img.height * sc;
+    while (img.width > 2 * sw) {   // halve in steps: a single drawImage from a 1600 px scan to a thumbnail aliases badly
       const c = document.createElement("canvas"); c.width = Math.ceil(img.width / 2); c.height = Math.ceil(img.height / 2);
       const g = c.getContext("2d"); g.imageSmoothingQuality = "high"; g.drawImage(img, 0, 0, c.width, c.height); img = c;
     }
-    const c = document.createElement("canvas"); c.width = COV_W; c.height = COV_H;
-    const g = c.getContext("2d"); g.imageSmoothingQuality = "high";
-    g.drawImage(img, (COV_W - sw) / 2, (COV_H - sh) / 2, sw, sh);
+    const c = document.createElement("canvas"); c.width = w; c.height = h;
+    const g = c.getContext("2d"); g.imageSmoothingQuality = "high"; g.drawImage(img, (w - sw) / 2, (h - sh) / 2, sw, sh);
+    return g;
+  }
+  async function coverBytes(zip, path) {
+    const g = await coverCanvas(zip, path, COV_W, COV_H); if (!g) return null;
     const d = g.getImageData(0, 0, COV_W, COV_H).data, out = new Uint8Array(4 + COV_W * COV_H * 2);
     out[0] = 0x50; out[1] = 0x43; out[2] = COV_W; out[3] = COV_H;
     for (let p = 0, i = 4; p < COV_W * COV_H * 4; p += 4, i += 2) {
@@ -168,7 +172,17 @@
     for (const [t, ps] of kept) { out += "\x01" + t + "\n"; for (const p of ps) out += p + "\n"; }
     return {title: clean(title), author: clean(author), text: out, chapters: kept.map(c => ({title: c[0], bytes: c[1].reduce((a, p) => a + p.length, 0)})), cover};
   }
+  // The e-paper Perch's full-screen cover, name.cvl beside name.txt: "PL", width and height (uint16 little-endian), then
+  // width*height 8-bit grey. The LCD has no use for it, so the portal sends it to e-paper devices only.
+  const CVL_W = 480, CVL_H = 720;
+  async function coverLarge(zip, path) {
+    const g = await coverCanvas(zip, path, CVL_W, CVL_H); if (!g) return null;
+    const d = g.getImageData(0, 0, CVL_W, CVL_H).data, out = new Uint8Array(6 + CVL_W * CVL_H);
+    out[0] = 0x50; out[1] = 0x4C; out[2] = CVL_W & 255; out[3] = CVL_W >> 8; out[4] = CVL_H & 255; out[5] = CVL_H >> 8;
+    for (let p = 0, i = 6; p < CVL_W * CVL_H * 4; p += 4, i++) out[i] = (d[p] * 77 + d[p + 1] * 150 + d[p + 2] * 29) >> 8;
+    return out;
+  }
   function slug(title) { const s = ascii(title).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40); return (s || "book") + ".txt"; }
-  const api = {convertEpub, coverBytes, slug, ascii, clean, title: s => clean(s).replace(/[\x03\x04]/g, ""), paragraphs, setHyphenationPatterns, hyphenate};
+  const api = {convertEpub, coverBytes, coverLarge, slug, ascii, clean, title: s => clean(s).replace(/[\x03\x04]/g, ""), paragraphs, setHyphenationPatterns, hyphenate};
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.BookConvert = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);

@@ -67,8 +67,8 @@ void peerTask(void *) {
 File upFile; String upName; size_t upBytes = 0; bool upOk = false;
 
 static String jsonStr(const String &s) { String o = "\""; for (char c : s) { if (c == '"' || c == '\\') { o += '\\'; o += c; } else if ((uint8_t)c < 32) o += ' '; else o += c; } return o + "\""; }
-static bool safeName(const String &n) {   // slug.txt or slug.cov only: no paths, no odd characters
-  if (!(n.endsWith(".txt") || n.endsWith(".cov")) || n.length() < 5 || n.length() > 48) return false;
+static bool safeName(const String &n) {   // slug.txt, slug.cov or slug.cvl only: no paths, no odd characters
+  if (!(n.endsWith(".txt") || n.endsWith(".cov") || n.endsWith(".cvl")) || n.length() < 5 || n.length() > 48) return false;
   for (char c : n) if (!(isalnum((uint8_t)c) || c == '-' || c == '_' || c == '.')) return false;
   return n.indexOf("..") < 0;
 }
