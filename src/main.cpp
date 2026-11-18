@@ -388,7 +388,7 @@ void handleSerial() {
           Serial.printf("\nput: %s %lu bytes\n", done ? "saved" : "FAILED at", got);
         }
       }
-      else if (!strncmp(line, "dict ", 5)) {   // "dict make": a three-word test dictionary when the volume has none; "dict rm": remove it; "dict <word>": look it up
+      else if (!strncmp(line, "dict ", 5)) {   // "dict make": a three-word test dictionary when the volume has none; "dict rm": remove it; "dict del <file>": delete one file from the dict folder; "dict <word>": look it up
         String arg = line + 5; arg.trim();
         if (arg == "make" && bookFS && !bookFS->exists("/dict/zz-test.ifo")) {
           static const char *const W3[3] = {"agenda", "heal", "norm"}, *const D3[3] = {"noun\na list of matters to be taken up\ne.g. the meeting's agenda\nalso: docket, schedule", "verb\nget healthy again\nalso: mend", "noun\na standard regarded as typical\ne.g. the current middle-class norm"};
@@ -396,6 +396,7 @@ void handleSerial() {
           for (int k = 0; k < 3; k++) { uint32_t n = strlen(D3[k]); d.write((const uint8_t *)D3[k], n); i.write((const uint8_t *)W3[k], strlen(W3[k]) + 1); uint8_t b[8] = {(uint8_t)(off >> 24), (uint8_t)(off >> 16), (uint8_t)(off >> 8), (uint8_t)off, 0, 0, (uint8_t)(n >> 8), (uint8_t)n}; i.write(b, 8); off += n; }
           i.close(); d.close(); File f = bookFS->open("/dict/zz-test.ifo", FILE_WRITE); f.print("StarDict's dict ifo file\nversion=2.4.2\nbookname=Test dictionary\nwordcount=3\nsametypesequence=m\n"); f.close(); Serial.println("dict: test dictionary written");
         } else if (arg == "rm" && bookFS) { dict::close(); for (const char *e : {".ifo", ".idx", ".dict"}) bookFS->remove(String("/dict/zz-test") + e); bookFS->rmdir("/dict"); Serial.println("dict: test dictionary removed"); }
+        else if (arg.startsWith("del ") && bookFS && arg.indexOf('/') < 0 && arg.indexOf("..") < 0) { dict::close(); String n = "/dict/" + arg.substring(4); Serial.printf("dict: %s %s\n", n.c_str(), bookFS->remove(n) ? "deleted" : "not there"); }
         else { dict::Result r = dict::lookup(arg.c_str()); Serial.printf("dict: %s -> have %d found %d head %s | %.80s\n", arg.c_str(), r.haveDict, r.found, r.head.c_str(), r.text.c_str()); }
       }
       else if (!strncmp(line, "clip", 4)) {   // "clip": size of clippings.txt; "clip rm": delete it
