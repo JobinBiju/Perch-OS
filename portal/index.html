@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Perch Portal</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Literata:ital,wght@0,400;1,400&display=swap">
 <style>
   :root { --bg: #f2f2f7; --card: #fff; --line: #e5e5ea; --edge: #c8c8ce; --text: #14141a; --dim: #6a6a75; --blue: #0071e3; --bluebg: #e8f2ff; --green: #15803d; --greenbg: #e3f6ea; --red: #c8102e; --redbg: #fdeceb; --off: #ececf1; }
   * { box-sizing: border-box; }
@@ -122,7 +122,50 @@
   .syncline { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--dim); padding: 0 4px; }
   .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); background: var(--text); color: #fff; padding: 10px 16px; border-radius: 12px; font-size: 14px; z-index: 20; max-width: calc(100% - 32px); }
 
+  /* tabs: Library and Notes */
+  .tabs { display: flex; gap: 4px; margin-left: 40px; margin-right: auto; align-self: stretch; }
+  .tabs a { height: 64px; padding: 0 14px; display: inline-flex; align-items: center; gap: 8px; border-bottom: 2px solid transparent; color: var(--dim); font-weight: 600; } .tabs a:hover { text-decoration: none; color: var(--text); }
+  .tabs a.on { border-bottom-color: var(--blue); color: var(--text); font-weight: 700; }
+  .cnt { height: 20px; min-width: 20px; padding: 0 6px; border-radius: 10px; background: var(--off); color: var(--dim); font-size: 12px; font-weight: 700; line-height: 20px; text-align: center; }
+  .mtabs { display: none; }
+
+  /* notes */
+  .nwrap { display: grid; grid-template-columns: 220px minmax(0, 1fr); column-gap: 40px; align-items: start; }
+  .aside { position: sticky; top: 24px; display: flex; flex-direction: column; gap: 24px; }
+  .flt { display: flex; flex-direction: column; gap: 2px; }
+  .flt a { min-height: 40px; padding: 8px 12px; border-radius: 10px; display: flex; align-items: center; gap: 10px; color: var(--text); font-weight: 600; line-height: 20px; } .flt a:hover { background: #e9e9ef; text-decoration: none; }
+  .flt a.on { background: var(--card); box-shadow: 0 1px 2px rgba(20,20,26,.08); } .flt a .n { margin-left: auto; color: var(--dim); font-size: 13px; font-weight: 600; } .flt .bk { font-weight: 500; }
+  .nhead { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .nhead h1 { font-size: 28px; font-weight: 800; line-height: 36px; letter-spacing: -.3px; }
+  .nlist { display: flex; flex-direction: column; gap: 16px; }
+  .nbook { background: var(--card); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+  .nbook > header { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--line); color: var(--text); } .nbook > header:hover { text-decoration: none; background: #fafafc; }
+  .cover.sm { width: 28px; height: 40px; font-size: 10px; }
+  .note { padding: 16px 20px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; } .note:last-child { border-bottom: 0; }
+  .quote { font-family: Literata, Georgia, serif; font-size: 16px; line-height: 26px; font-style: italic; border-left: 3px solid #e8b931; padding-left: 12px; }
+  .mtext { font-family: Literata, Georgia, serif; font-size: 16px; line-height: 26px; color: var(--dim); } .mtext.s13 { font-family: inherit; font-size: 13px; line-height: 18px; }
+  .nbox { display: flex; gap: 8px; padding: 10px 12px; border-radius: 10px; background: var(--bg); font-size: 14px; line-height: 20px; white-space: pre-wrap; }
+  .nbox svg { margin-top: 2px; }
+  .meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 30px; }
+  .meta > span:first-child { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .lnk { height: 30px; padding: 0 10px; border-radius: 15px; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--blue); background: none; border: 0; white-space: nowrap; } .lnk:hover { background: var(--bluebg); }
+  .icb { width: 30px; height: 30px; border-radius: 15px; border: 0; background: none; display: inline-flex; align-items: center; justify-content: center; padding: 0; flex: none; } .icb:hover { background: var(--bg); }
+  .nedit { display: flex; flex-direction: column; gap: 8px; }
+  .nedit textarea { width: 100%; min-height: 76px; border-radius: 10px; border: 1px solid var(--edge); padding: 10px 12px; font: inherit; font-size: 14px; line-height: 20px; color: var(--text); resize: vertical; outline: 0; } .nedit textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 4px var(--bluebg); }
+  .kchips { display: none; } .expfab { display: none; }
+  .notice { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 28px; display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+
   @media (max-width: 760px) {
+    .tabs { display: none; } .mtabs { display: flex; margin: 12px 16px 0; padding: 4px; border-radius: 22px; background: var(--off); }
+    .mtabs a { flex: 1; height: 36px; border-radius: 18px; display: flex; align-items: center; justify-content: center; gap: 6px; color: var(--dim); font-weight: 600; } .mtabs a:hover { text-decoration: none; }
+    .mtabs a.on { background: var(--card); box-shadow: 0 1px 2px rgba(20,20,26,.12); color: var(--text); font-weight: 700; } .mtabs .cnt { background: none; padding: 0; min-width: 0; font-weight: 600; }
+    .nmain { padding-top: 14px; gap: 14px; } .nwrap { grid-template-columns: 1fr; padding: 0 16px; } .aside, .nhead { display: none; }
+    .kchips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding: 0 16px; } .kchips::-webkit-scrollbar { display: none; }
+    .kchip { flex: none; height: 32px; padding: 0 12px; border-radius: 16px; background: var(--card); color: var(--text); border: 1px solid var(--edge); font-size: 14px; font-weight: 600; line-height: 30px; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; } .kchip:hover { text-decoration: none; }
+    .kchip.on { background: var(--text); color: #fff; border-color: var(--text); }
+    .nlist { gap: 12px; } .nbook > header { padding: 12px 14px; } .note { padding: 14px; } .quote, .mtext { font-size: 15px; line-height: 24px; }
+    .expfab { display: flex; position: fixed; left: 0; right: 0; bottom: 0; padding: 12px 16px 28px; background: linear-gradient(rgba(242,242,247,0), var(--bg) 28%); z-index: 5; } .expfab .btn { width: 100%; height: 48px; border-radius: 14px; font-size: 15px; }
+    .notesec .note:nth-child(n+2) { display: none; }
     header.top { height: 56px; padding: 0 16px; } .logo { width: 30px; height: 30px; border-radius: 8px; } .brand i, .brand .dim, .paired, .forget { display: none; } .pairpill { display: inline-flex; }
     main { max-width: 100%; width: 100%; padding: 20px 0 96px; gap: 24px; } section { gap: 12px; } .head { padding: 0 16px; } .head h2 { font-size: 20px; }
     .devs { display: flex; gap: 10px; padding: 0 16px; overflow-x: auto; scrollbar-width: none; } .devs::-webkit-scrollbar { display: none; }
@@ -174,6 +217,11 @@ const P = {   // Lucide paths
   alert: '<circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/>',
   send: '<path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/>',
   left: '<path d="m15 18-6-6 6-6"/>', trash: '<path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
+  notepen: '<path d="M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7.4"/><path d="M2 6h4"/><path d="M2 10h4"/><path d="M2 14h4"/><path d="M2 18h4"/><path d="M21.378 5.626a1 1 0 1 0-3.004-3.004l-5.01 5.012a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506z"/>',
+  highlighter: '<path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/>',
+  bookmark: '<path d="M17 3a2 2 0 0 1 2 2v15a1 1 0 0 1-1.496.868l-4.512-2.578a2 2 0 0 0-1.984 0l-4.512 2.578A1 1 0 0 1 5 20V5a2 2 0 0 1 2-2z"/>',
+  pencil: '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>',
+  download: '<path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/>', layers: '<path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/>',
   timer: '<line x1="10" x2="14" y1="2" y2="2"/><line x1="12" x2="15" y1="14" y2="11"/><circle cx="12" cy="14" r="8"/>', lock: '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
 };
 const ic = (n, size = 16, col = "currentColor", sw = 2) => `<svg aria-hidden="true" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${col}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round">${P[n]}</svg>`;
@@ -276,10 +324,13 @@ const progress = (pct, cls = "") => pct < 0 ? `<span class="new">NEW</span>` : p
 const chip = o => `<span class="chip${o.d.online ? "" : " off"}" title="${esc(o.d.name)}${o.d.online ? "" : " (offline)"}">${ic(o.d.type === "epaper" ? "epaper" : "lcd", 12, o.d.online ? "#14141a" : "#6a6a75")}${esc(short(o.d))}</span>`;
 
 // ---- views
-function header() {
-  return `<header class="top"><a class="brand" href="#/"><span class="logo">${ic("bird", 19, "#fff")}</span><b>Perch</b><i></i><span class="dim">Portal</span></a>
+function header(tab) {
+  const n = N.items ? allNotes().length : 0, cnt = n ? `<span class="cnt">${n}</span>` : "";
+  const tabs = tab ? `<nav class="tabs"><a href="#/" class="${tab === "lib" ? "on" : ""}">Library</a><a href="#/notes" class="${tab === "notes" ? "on" : ""}">Notes${cnt}</a></nav>` : "";
+  const mtabs = tab ? `<nav class="mtabs"><a href="#/" class="${tab === "lib" ? "on" : ""}">Library</a><a href="#/notes" class="${tab === "notes" ? "on" : ""}">Notes${cnt}</a></nav>` : "";
+  return `<header class="top"><a class="brand" href="#/"><span class="logo">${ic("bird", 19, "#fff")}</span><b>Perch</b><i></i><span class="dim">Portal</span></a>${tabs}
     <div class="row" style="gap:16px"><span class="paired">${ic("shield", 16, "#15803d")}<span>Paired with <b class="b" style="color:var(--text)">${esc(S.self.host || location.host)}</b></span></span>
-    <button class="btn forget" data-act="forget">Forget this browser</button><button class="pairpill" data-act="forget" title="Forget this browser">${ic("shield", 14, "#15803d")}Paired</button></div></header>`;
+    <button class="btn forget" data-act="forget">Forget this browser</button><button class="pairpill" data-act="forget" title="Forget this browser">${ic("shield", 14, "#15803d")}Paired</button></div></header>${mtabs}`;
 }
 function devCard(d) {
   const i = d.info || {}, bat = i.battery || {}, st = i.storage || {}, on = d.online;
@@ -302,7 +353,7 @@ function libraryView() {
       <div class="mid"><div class="ti ell">${esc(b.title)}</div><div class="s13 dim ell">${esc([b.author, fmt(b.size)].filter(Boolean).join(" · "))}</div>
         <div class="under"><span class="chips">${b.on.slice(0, 2).map(chip).join("")}${b.on.length > 2 ? `<span class="chip">+${b.on.length - 2}</span>` : ""}</span>${progress(b.pct)}</div></div>
       <div class="chips">${b.on.map(chip).join("")}</div><div class="pr">${progress(b.pct)}</div><span class="more" aria-label="More actions">${ic("dots", 18, "#6a6a75")}</span></a>`).join("");
-  return header() + `<main>
+  return header("lib") + `<main>
     <section><div class="head"><div class="t"><h2>Devices</h2><span class="dim">${online().length} of ${devs.length} online</span></div>
       <button class="btn scan" data-act="scan" ${S.scanning ? "disabled" : ""}>${ic("refresh", 16)}<span>${S.scanning ? "Scanning…" : "Scan again"}</span></button></div>
       <div class="devs">${devs.map(devCard).join("")}</div></section>
@@ -333,13 +384,12 @@ function bookView(file) {
   }).join("");
   const away = b.on.filter(o => !o.d.online).map(o => o.d.name);
   const added = det && det.added > 1e9 ? new Date(det.added * 1000).toLocaleDateString([], {day: "numeric", month: "short", year: "numeric"}) : "–";
-  return header() + `<main class="bookmain" style="padding-top:24px;gap:24px"><a class="back" href="#/">${ic("left", 18, "#6a6a75")}Library</a>
+  return header("lib") + `<main class="bookmain" style="padding-top:24px;gap:24px"><a class="back" href="#/">${ic("left", 18, "#6a6a75")}Library</a>
     <div class="bookpage"><div class="left">${coverTile(b, "bigcover")}
         <div class="facts grow"><div><span class="cap">Size</span><b>${fmt(b.size)}</b></div><div><span class="cap">Chapters</span><b>${det ? det.nch : "–"}</b></div><div><span class="cap">Added</span><b>${added}</b></div><div><span class="cap">Format</span><b>Perch text</b></div></div></div>
       <div style="display:flex;flex-direction:column;gap:28px;min-width:0"><div style="display:flex;flex-direction:column;gap:6px"><h1>${esc(b.title)}</h1><div class="dim" style="font-size:17px;line-height:24px">${esc(b.author)}</div></div>
         <section class="sub" style="gap:12px"><div class="row" style="justify-content:space-between;align-items:baseline"><h2>On your devices</h2><span class="s13 dim">${b.on.length} ${b.on.length === 1 ? "copy" : "copies"}</span></div><div class="panel">${copies}</div></section>
-        <section class="sub" style="gap:12px"><div class="row" style="justify-content:space-between;align-items:baseline"><h2>Chapters</h2>${chs.length > 5 ? `<a class="s13 b" href="#" data-act="allch">${S.allCh ? "Show fewer" : "Show all " + chs.length}</a>` : ""}</div>
-          <div class="panel">${chRows || `<div class="chap dim">${det ? "No chapters found" : "Loading…"}</div>`}</div></section>
+        ${bookNotes(file)}
         <div class="row delrow" style="justify-content:space-between;gap:16px;padding-top:4px"><span class="s13 dim">Deleting removes the book from every online device now${away.length ? ", and from " + esc(away.join(" and ")) + " the next time it comes online" : ""}.</span>
           <button class="btn lg danger" data-act="delall" data-file="${esc(file)}">${ic("trash", 16, "#c8102e")}Delete from all devices</button></div>
       </div></div></main>`;
@@ -407,13 +457,106 @@ async function saveSync(url, key) {
   const devs = usable(), bad = [];
   for (const d of devs) { try { await post(d, "/api/sync?url=" + encodeURIComponent(url) + "&key=" + encodeURIComponent(key)); } catch (e) { bad.push(d.name + ": " + e.message); } }
   if (bad.length) { S.sync.msg = bad.join("; "); S.sync.bad = true; S.sync.url = url; S.sync.key = key; return render(); }
-  S.sync = null; toast(url ? "Cloud sync saved" : "Cloud sync turned off"); await refresh(false);
+  S.sync = null; N.cloud = undefined; N.items = null; toast(url ? "Cloud sync saved" : "Cloud sync turned off"); await refresh(false); loadNotes(true);
 }
+// ---- notes: bookmarks, highlights and the reader's own notes from every device, kept by the cloud sync service.
+// The page reads and changes them there directly, with the address and home key the device it came from holds.
+const N = {cloud: undefined, items: null, at: 0, err: "", busy: false, edit: null, kind: "all", q: ""};
+async function cloudCfg() {
+  if (N.cloud !== undefined) return N.cloud;
+  try { const j = await (await get(withT(S.self, "/api/sync"))).json(); N.cloud = j.url && j.key ? {url: j.url, key: j.key} : null; } catch (e) { return null; }
+  return N.cloud;
+}
+async function cloud(path, opt = {}) {
+  const c = await cloudCfg(); if (!c) throw new Error("no sync");
+  const r = await fetch(c.url + path, {...opt, headers: {authorization: "Bearer " + c.key, "content-type": "application/json"}});
+  if (!r.ok) throw new Error("sync service: " + r.status); return r.json();
+}
+async function loadNotes(force) {
+  if (N.busy || S.pairFor || (!force && N.items && Date.now() - N.at < 60000)) return;
+  N.busy = true;
+  try { if (await cloudCfg()) { N.items = await cloud("/v1/notes"); N.at = Date.now(); N.err = ""; } else N.items = null; }
+  catch (e) { N.err = "Could not reach the sync service"; }
+  N.busy = false; render();
+}
+const kindOf = it => it.k === "m" ? "m" : it.n ? "n" : "h";
+const KIND = {h: "Highlight", n: "Note", m: "Bookmark"};
+function allNotes() { const out = []; for (const [book, items] of Object.entries(N.items || {})) for (const it of items) if (!it.del) out.push({...it, book}); return out; }
+function bookOf(file) { return library().find(b => b.file === file) || {file, title: file.replace(/\.txt$/, "").replace(/[-_]+/g, " ").replace(/^./, c => c.toUpperCase()), author: ""}; }
+const day = t => new Date(t * 1000).toLocaleDateString([], {day: "numeric", month: "short"});
+function noteItem(it) {
+  const k = kindOf(it), editing = N.edit === it.id;
+  const words = it.q ? (it.k === "h" ? `<div class="quote">“${esc(it.q)}”</div>` : `<div class="mtext">${esc(it.q)}</div>`)
+    : `<div class="mtext s13">Open this book on a Perch to fill in ${it.k === "h" ? "the highlighted words" : "the page's first words"}.</div>`;
+  const note = editing ? `<div class="nedit"><textarea id="ntext" maxlength="2000" placeholder="Write a note" aria-label="Note">${esc(it.n || "")}</textarea>
+      <div class="row" style="gap:8px;justify-content:flex-end"><button class="btn" data-act="ncancel">Cancel</button><button class="btn pri" data-act="nsave" data-id="${it.id}" data-book="${esc(it.book)}">Save</button></div></div>`
+    : it.n ? `<div class="nbox">${ic("notepen", 16, "#0071e3")}<span>${esc(it.n)}</span></div>` : "";
+  const where = [KIND[k], "Ch " + (it.ch + 1), it.pct + "%", it.dev, day(it.t)].filter(Boolean).join(" · ");
+  const acts = (it.k === "h" && !editing ? `<button class="lnk" data-act="nedit" data-id="${it.id}" aria-label="${it.n ? "Edit note" : "Add a note"}">${ic(it.n ? "pencil" : "plus", 14, "#0071e3")}${it.n ? "Edit note" : "Add note"}</button>` : "")
+    + `<button class="icb" aria-label="Delete" data-act="ndel" data-id="${it.id}" data-book="${esc(it.book)}">${ic("trash", 16, "#6a6a75")}</button>`;
+  return `<article class="note">${words}${note}<div class="meta"><span>${ic(k === "n" ? "notepen" : k === "h" ? "highlighter" : "bookmark", 14, "#6a6a75")}<span class="ell">${esc(where)}</span></span><span class="row" style="gap:4px">${acts}</span></div></article>`;
+}
+function notesFor(file) { return allNotes().filter(x => x.book === file).sort((a, b) => b.t - a.t); }
+function bookNotes(file) {   // the book page's section: the two newest, and a way to all of them
+  const list = N.items ? notesFor(file) : [];
+  const body = !(S.self.info || {}).sync ? `<div class="note"><span class="s13 dim">Highlights and notes from every device appear here once cloud sync is on. <a class="b" href="#" data-act="sync">Set up cloud sync</a></span></div>`
+    : !N.items ? `<div class="note"><span class="s13 dim">${N.err ? esc(N.err) : "Loading…"}</span></div>`
+    : list.length ? list.slice(0, 2).map(noteItem).join("") : `<div class="note"><span class="s13 dim">No highlights yet. Hold a word on your Perch to highlight it, or tap a page's top right corner to bookmark it.</span></div>`;
+  return `<section class="sub" style="gap:12px"><div class="row" style="justify-content:space-between;align-items:baseline"><h2>Highlights and notes</h2>${list.length ? `<a class="s13 b" href="#/notes/${encodeURIComponent(file)}">See all ${list.length}</a>` : ""}</div>
+    <div class="nbook notesec">${body}</div></section>`;
+}
+function notesView(file) {
+  const all = allNotes(), cnt = {all: all.length, h: 0, n: 0, m: 0}, per = {};
+  for (const x of all) { cnt[kindOf(x)]++; per[x.book] = (per[x.book] || 0) + 1; }
+  const q = N.q.trim().toLowerCase();
+  const list = all.filter(x => (N.kind === "all" || kindOf(x) === N.kind) && (!file || x.book === file) && (!q || ((x.q || "") + " " + (x.n || "")).toLowerCase().includes(q)));
+  const books = [...new Set(list.map(x => x.book))].map(bookOf).sort((a, b) => a.title.localeCompare(b.title));
+  const groups = books.map(b => { const its = list.filter(x => x.book === b.file).sort((x, y) => y.t - x.t);
+    return `<section class="nbook"><header>${coverTile(b, "sm")}<div class="grow"><div class="b ell" style="line-height:20px">${esc(b.title)}</div><div class="s13 dim ell">${esc([b.author, its.length + (its.length === 1 ? " item" : " items")].filter(Boolean).join(" · "))}</div></div></header>${its.map(noteItem).join("")}</section>`; }).join("");
+  const kinds = [["all", "Everything", "layers"], ["h", "Highlights", "highlighter"], ["n", "Notes", "notepen"], ["m", "Bookmarks", "bookmark"]];
+  const href = k => `#/notes${file ? "/" + encodeURIComponent(file) : ""}`;
+  const side = `<aside class="aside"><div class="flt">${kinds.map(([k, l, i]) => `<a href="${href(k)}" class="${N.kind === k ? "on" : ""}" data-act="nkind" data-k="${k}">${ic(i, 16, "#6a6a75")}<span>${l}</span><span class="n">${cnt[k]}</span></a>`).join("")}</div>
+    <div class="flt"><div class="cap" style="padding:0 12px 6px">Books</div><a href="#/notes" class="bk ${file ? "" : "on"}"><span class="ell">All books</span><span class="n">${all.length}</span></a>${Object.keys(per).map(bookOf).sort((a, b) => a.title.localeCompare(b.title)).map(b => `<a href="#/notes/${encodeURIComponent(b.file)}" class="bk ${file === b.file ? "on" : ""}"><span class="ell">${esc(b.title)}</span><span class="n">${per[b.file]}</span></a>`).join("")}</div></aside>`;
+  const chips = `<div class="kchips">${kinds.map(([k, l]) => `<a href="#" class="kchip ${N.kind === k ? "on" : ""}" data-act="nkind" data-k="${k}">${k === "all" ? "All" : l} ${cnt[k]}</a>`).join("")}${file ? `<a href="#/notes" class="kchip on">${esc(bookOf(file).title.slice(0, 24))} ${ic("x", 14, "#fff")}</a>` : ""}</div>`;
+  const devs = new Set(all.map(x => x.dev).filter(Boolean)).size, ago = N.at ? Math.round((Date.now() - N.at) / 60000) : 0;
+  const sub = `${all.length} from ${devs || 1} ${devs === 1 ? "device" : "devices"} · synced ${ago < 1 ? "just now" : ago + " min ago"}`;
+  let body;
+  if (!(S.self.info || {}).sync) body = `<div class="notice"><h2 style="font-size:20px;line-height:28px">Notes need cloud sync</h2><p class="dim">Bookmarks, highlights and notes from every Perch are collected by your sync service. Set it up once and they all appear here.</p><button class="btn lg pri" data-act="sync">Set up cloud sync</button></div>`;
+  else if (!N.items) body = `<div class="notice"><p class="dim">${N.err ? esc(N.err) : "Loading notes…"}</p>${N.err ? `<button class="btn" data-act="nreload">Try again</button>` : ""}</div>`;
+  else if (!list.length) body = `<div class="notice"><p class="dim">${all.length ? "Nothing matches." : "No notes yet. Hold a word on your Perch to highlight it, or tap a page's top right corner to bookmark it."}</p></div>`;
+  else body = groups;
+  return header("notes") + `<main class="nmain">${chips}<div class="nwrap">${side}<div style="display:flex;flex-direction:column;gap:20px;min-width:0">
+      <div class="nhead"><div><h1>Notes</h1><div class="s13 dim">${N.items ? esc(sub) : ""}</div></div>
+        <div class="row" style="gap:12px"><label class="search">${ic("search", 16)}<input id="nq" type="search" placeholder="Search notes" value="${esc(N.q)}" aria-label="Search notes"></label><button class="btn lg" data-act="nexport" ${list.length ? "" : "disabled"}>${ic("download", 16)}Export</button></div></div>
+      <div class="nlist">${body}</div></div></div></main>${list.length ? `<div class="expfab"><button class="btn" data-act="nexport">${ic("download", 18)}Export notes</button></div>` : ""}`;
+}
+function exportNotes() {   // Markdown, grouped by book, in the order shown
+  const file = (/^#\/notes\/(.+)$/.exec(location.hash) || [])[1], f = file && decodeURIComponent(file), q = N.q.trim().toLowerCase();
+  const list = allNotes().filter(x => (N.kind === "all" || kindOf(x) === N.kind) && (!f || x.book === f) && (!q || ((x.q || "") + " " + (x.n || "")).toLowerCase().includes(q)));
+  let md = "# Notes from Perch\n";
+  for (const b of [...new Set(list.map(x => x.book))].map(bookOf).sort((a, b) => a.title.localeCompare(b.title))) {
+    md += `\n## ${b.title}\n${b.author ? "\n*" + b.author + "*\n" : ""}`;
+    for (const x of list.filter(x => x.book === b.file).sort((p, r) => p.ch - r.ch || p.rel - r.rel)) {
+      md += "\n" + (x.k === "h" ? "> " + (x.q || "(words not synced yet)").replace(/\n/g, "\n> ") : x.q ? "Bookmark: " + x.q : "Bookmark") + "\n";
+      if (x.n) md += "\n" + x.n + "\n";
+      md += `\n${KIND[kindOf(x)]} · Ch ${x.ch + 1} · ${x.pct}%${x.dev ? " · " + x.dev : ""} · ${new Date(x.t * 1000).toLocaleDateString([], {day: "numeric", month: "short", year: "numeric"})}\n`;
+    }
+  }
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([md], {type: "text/markdown"})); a.download = "perch-notes.md"; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+async function notePost(book, item) {   // one change, merged by the service like a device's; its answer is the book's new set
+  const j = await cloud("/v1/notes/" + encodeURIComponent(book), {method: "POST", body: JSON.stringify({items: [item], dev: "Portal"})});
+  N.items = N.items || {}; N.items[book] = j.items.filter(x => !x.del); if (!N.items[book].length) delete N.items[book]; render();
+}
+const plain = it => { const o = {...it}; delete o.book; return o; };
+
 function render() {
-  const app = $("#app"), q = document.activeElement && document.activeElement.id === "q", pos = q ? document.activeElement.selectionStart : 0;
-  const m = /^#\/book\/(.+)$/.exec(location.hash);
-  app.innerHTML = S.pairFor ? pairView() : (m ? bookView(decodeURIComponent(m[1])) : libraryView()) + (S.add ? addDialog() : "") + (S.sync ? syncDialog() : "");
-  if (q && $("#q")) { $("#q").focus(); $("#q").setSelectionRange(pos, pos); }
+  const app = $("#app"), fid = document.activeElement && document.activeElement.id, q = fid === "q" || fid === "nq", pos = q ? document.activeElement.selectionStart : 0;
+  const draft = $("#ntext") ? $("#ntext").value : null;
+  const m = /^#\/book\/(.+)$/.exec(location.hash), nm = /^#\/notes(?:\/(.+))?$/.exec(location.hash);
+  app.innerHTML = S.pairFor ? pairView() : (m ? bookView(decodeURIComponent(m[1])) : nm ? notesView(nm[1] && decodeURIComponent(nm[1])) : libraryView()) + (S.add ? addDialog() : "") + (S.sync ? syncDialog() : "");
+  if (q && $("#" + fid)) { $("#" + fid).focus(); $("#" + fid).setSelectionRange(pos, pos); }
+  if ($("#ntext")) { if (draft !== null) $("#ntext").value = draft; else { const t = $("#ntext"); t.focus(); t.setSelectionRange(t.value.length, t.value.length); } }
   if (S.pairFor) wirePair(); else loadCovers();
 }
 function toast(t) { clearTimeout(S.toastT); let el = $(".toast"); if (!el) { el = document.createElement("div"); el.className = "toast"; document.body.appendChild(el); } el.textContent = t; S.toastT = setTimeout(() => el.remove(), 3500); }
@@ -510,6 +653,20 @@ document.addEventListener("click", async e => {
   else if (act === "savesync") { const url = $("#surl").value.trim().replace(/\/+$/, ""), key = $("#skey").value.trim(); if (!/^https:\/\//.test(url) || key.length < 24) { S.sync.url = url; S.sync.key = key; S.sync.msg = "Enter an https address and a key of at least 24 characters"; S.sync.bad = true; return render(); } saveSync(url, key); }
   else if (act === "syncoff") saveSync("", "");
   else if (act === "scan") { S.scanning = true; render(); refresh(true); }
+  else if (act === "nkind") { N.kind = t.dataset.k; render(); }
+  else if (act === "nreload") { N.err = ""; N.cloud = undefined; render(); loadNotes(true); }
+  else if (act === "nexport") exportNotes();
+  else if (act === "nedit") { N.edit = +t.dataset.id; render(); }
+  else if (act === "ncancel") { N.edit = null; render(); }
+  else if (act === "nsave" || act === "ndel") {
+    const it = allNotes().find(x => x.id === +t.dataset.id); if (!it) return;
+    const now = Math.max(Math.floor(Date.now() / 1000), it.t + 1);
+    if (act === "ndel" && !confirm("Delete this " + KIND[kindOf(it)].toLowerCase() + " from every device?")) return;
+    try {
+      if (act === "nsave") { const text = $("#ntext").value.trim(); N.edit = null; await notePost(it.book, {...plain(it), n: text, t: now, dev: "Portal"}); toast(text ? "Note saved" : "Note removed"); }
+      else { await notePost(it.book, {id: it.id, del: 1, t: now}); toast("Deleted. Your devices drop it the next time the book is opened"); }
+    } catch (err) { toast("Could not reach the sync service"); }
+  }
   else if (act === "add") openAdd();
   else if (act === "choose") $("#pick").click();
   else if (act === "rmfile") { S.add.items.splice(+t.dataset.k, 1); render(); }
@@ -532,15 +689,15 @@ document.addEventListener("change", e => {
   if (e.target.dataset.target && S.add) { const id = e.target.dataset.target; e.target.checked ? S.add.targets.add(id) : S.add.targets.delete(id); render(); }
   if (e.target.id === "pick") { openAdd(e.target.files); e.target.value = ""; }
 });
-document.addEventListener("input", e => { if (e.target.id === "q") { S.query = e.target.value; render(); } });
+document.addEventListener("input", e => { if (e.target.id === "q") { S.query = e.target.value; render(); } else if (e.target.id === "nq") { N.q = e.target.value; render(); } });
 let drag = 0;
 document.addEventListener("dragenter", e => { e.preventDefault(); if (++drag === 1) document.body.classList.add("dragging"); });
 document.addEventListener("dragleave", e => { e.preventDefault(); if (--drag <= 0) { drag = 0; document.body.classList.remove("dragging"); } });
 document.addEventListener("dragover", e => e.preventDefault());
 document.addEventListener("drop", e => { e.preventDefault(); drag = 0; document.body.classList.remove("dragging"); if (!S.pairFor && e.dataTransfer.files.length) openAdd(e.dataTransfer.files); });
-window.addEventListener("hashchange", () => { S.allCh = false; S.detail = null; render(); const m = /^#\/book\/(.+)$/.exec(location.hash); if (m) loadDetail(decodeURIComponent(m[1])); window.scrollTo(0, 0); });
-boot().then(() => { const m = /^#\/book\/(.+)$/.exec(location.hash); if (m && !S.pairFor) loadDetail(decodeURIComponent(m[1])); });
-setInterval(() => { if (!S.pairFor && !S.add && !S.sync && document.visibilityState === "visible") refresh(false); }, 30000);
+window.addEventListener("hashchange", () => { S.allCh = false; S.detail = null; N.edit = null; render(); loadNotes(false); const m = /^#\/book\/(.+)$/.exec(location.hash); if (m) loadDetail(decodeURIComponent(m[1])); window.scrollTo(0, 0); });
+boot().then(() => { const m = /^#\/book\/(.+)$/.exec(location.hash); if (m && !S.pairFor) loadDetail(decodeURIComponent(m[1])); loadNotes(true); });
+setInterval(() => { if (!S.pairFor && !S.add && !S.sync && N.edit === null && document.visibilityState === "visible") { refresh(false); loadNotes(false); } }, 30000);
 </script>
 </body>
 </html>

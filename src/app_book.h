@@ -499,8 +499,8 @@ uint32_t notesSentGen = 0;
 void bookNotesSync() {
   if (!syncOn() || book.ch < 0 || !book.file.length()) return;
   JsonDocument d; d["dev"] = cfg.name; JsonArray a = d["items"].to<JsonArray>();
-  for (int i = 0; i < nmarks; i++) { JsonObject o = a.add<JsonObject>(); o["id"] = marks[i].id; o["k"] = "m"; o["ch"] = marks[i].ch; o["rel"] = marks[i].rel; o["len"] = marks[i].len; o["pct"] = marks[i].pct; o["t"] = marks[i].t; }
-  for (int i = 0; i < nnotes; i++) { JsonObject o = a.add<JsonObject>(); o["id"] = notes[i].id; o["k"] = "h"; o["ch"] = notes[i].ch; o["rel"] = notes[i].rel; o["end"] = notes[i].end; o["len"] = notes[i].len; o["pct"] = notes[i].pct; o["t"] = notes[i].t; }
+  for (int i = 0; i < nmarks; i++) { JsonObject o = a.add<JsonObject>(); o["id"] = marks[i].id; o["k"] = "m"; o["ch"] = marks[i].ch; o["rel"] = marks[i].rel; o["len"] = marks[i].len; o["pct"] = marks[i].pct; o["t"] = marks[i].t; o["q"] = markText(marks[i], 200); }   // q: the words, so the portal can show notes without the book
+  for (int i = 0; i < nnotes; i++) { JsonObject o = a.add<JsonObject>(); o["id"] = notes[i].id; o["k"] = "h"; o["ch"] = notes[i].ch; o["rel"] = notes[i].rel; o["end"] = notes[i].end; o["len"] = notes[i].len; o["pct"] = notes[i].pct; o["t"] = notes[i].t; Range g = rangeOf(notes[i]); o["q"] = plainText(g.a, g.b, 500); }
   for (int i = 0; i < ntombs; i++) { JsonObject o = a.add<JsonObject>(); o["id"] = tombs[i].id; o["del"] = 1; o["t"] = tombs[i].t; }
   String body; serializeJson(d, body);
   sy.notesDone = false; sy.notesFile = book.file; sy.notesBody = body; notesSentGen = sy.notesGen; sy.notesWant = true;
