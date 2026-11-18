@@ -338,6 +338,7 @@ void handleSerial() {
         Serial.printf("sleep %d min asleep %d idle %lu s light %d min deep %d min host %d last light sleep %d s cause %d reset reason %d\n", cfg.sleepMin, asleep, (unsigned long)((millis() - lastActivity) / 1000), cfg.lightMin, cfg.deepMin, bat.host, lastSleepS, lastSleepCause, (int)esp_reset_reason());
         Serial.printf("deep sleeps %d touch wakes %d stray wakes %d\n", deepCount, wakeCount, strayCount);
         Serial.printf("sync on %d busy %d err %s book %s ch %d posT %lu\n", syncOn(), sy.busy, sy.err.c_str(), book.file.c_str(), book.ch, (unsigned long)book.posT);
+        Serial.printf("notes: %d marks %d highlights %d tombs dirty %d\n", nmarks, nnotes, ntombs, notesDirty);
         Serial.printf("bat %d mV raw %d pct %d usb %d host %d charging %d full %d lift %d trend %d\n", bat.mv, bat.raw, bat.pct, bat.usb, bat.host, bat.charging, bat.full, bat.lift, bat.trend);
         Serial.printf("sp linked %d busy %d pending %d want %d lastPoll %lu have %d err %s access %d wxbusy %d mutex %s\n", sp.linked, sp.busy, sp.pending, sp.wantPolling, (unsigned long)sp.lastPoll, sp.have, sp.err.c_str(), sp.access.length(), wx.busy, xSemaphoreGetMutexHolder(netMutex) ? pcTaskGetName(xSemaphoreGetMutexHolder(netMutex)) : "free"); }
       else if (c == 'i') { Serial.print("i2c:"); for (int a = 1; a < 127; a++) { Wire.beginTransmission(a); if (!Wire.endTransmission()) Serial.printf(" 0x%02x", a); } Serial.println(); }   // bus scan
@@ -369,6 +370,20 @@ void handleSerial() {
         Serial.printf("dns %s -> %s (%d) in %lu ms\n", host.c_str(), ok ? ip.toString().c_str() : "fail", ok, (unsigned long)(millis() - t0));
         if (ok) { WiFiClient tc; t0 = millis(); bool c1 = tc.connect(ip, 443, 5000); Serial.printf("tcp 443 %d in %lu ms\n", c1, (unsigned long)(millis() - t0)); tc.stop();
           WiFiClientSecure sc; sc.setInsecure(); sc.setTimeout(8); t0 = millis(); bool c2 = sc.connect(host.c_str(), 443); Serial.printf("tls %d in %lu ms heap %u\n", c2, (unsigned long)(millis() - t0), ESP.getFreeHeap()); sc.stop(); } }
+      else if (!strncmp(line, "dict ", 5)) {   // "dict make": a three-word test dictionary when the volume has none; "dict rm": remove it; "dict <word>": look it up
+        String arg = line + 5; arg.trim();
+        if (arg == "make" && bookFS && !bookFS->exists("/dict/zz-test.ifo")) {
+          static const char *const W3[3] = {"agenda", "heal", "norm"}, *const D3[3] = {"noun\na list of matters to be taken up\ne.g. the meeting's agenda\nalso: docket, schedule", "verb\nget healthy again\nalso: mend", "noun\na standard regarded as typical\ne.g. the current middle-class norm"};
+          bookFS->mkdir("/dict"); dict::close(); File i = bookFS->open("/dict/zz-test.idx", FILE_WRITE), d = bookFS->open("/dict/zz-test.dict", FILE_WRITE); uint32_t off = 0;
+          for (int k = 0; k < 3; k++) { uint32_t n = strlen(D3[k]); d.write((const uint8_t *)D3[k], n); i.write((const uint8_t *)W3[k], strlen(W3[k]) + 1); uint8_t b[8] = {(uint8_t)(off >> 24), (uint8_t)(off >> 16), (uint8_t)(off >> 8), (uint8_t)off, 0, 0, (uint8_t)(n >> 8), (uint8_t)n}; i.write(b, 8); off += n; }
+          i.close(); d.close(); File f = bookFS->open("/dict/zz-test.ifo", FILE_WRITE); f.print("StarDict's dict ifo file\nversion=2.4.2\nbookname=Test dictionary\nwordcount=3\nsametypesequence=m\n"); f.close(); Serial.println("dict: test dictionary written");
+        } else if (arg == "rm" && bookFS) { dict::close(); for (const char *e : {".ifo", ".idx", ".dict"}) bookFS->remove(String("/dict/zz-test") + e); bookFS->rmdir("/dict"); Serial.println("dict: test dictionary removed"); }
+        else { dict::Result r = dict::lookup(arg.c_str()); Serial.printf("dict: %s -> have %d found %d head %s | %.80s\n", arg.c_str(), r.haveDict, r.found, r.head.c_str(), r.text.c_str()); }
+      }
+      else if (!strncmp(line, "clip", 4)) {   // "clip": size of clippings.txt; "clip rm": delete it
+        if (!bookFS) Serial.println("clip: no volume"); else if (!strcmp(line, "clip rm")) { bookFS->remove("/clippings.txt"); Serial.println("clip: removed"); }
+        else { File f = bookFS->open("/clippings.txt"); Serial.printf("clip: %u bytes\n", f ? (unsigned)f.size() : 0); if (f) { while (f.available()) Serial.write(f.read()); f.close(); } }
+      }
       else if (!strncmp(line, "sync ", 5)) {   // cloud sync: "sync <https address> <home key>", or "sync off"
         String v = line + 5; v.trim(); int sp1 = v.indexOf(' ');
         if (v == "off") { cfg.syncUrl = ""; cfg.syncKey = ""; } else if (sp1 > 0) { cfg.syncUrl = v.substring(0, sp1); cfg.syncKey = v.substring(sp1 + 1); cfg.syncKey.trim(); }

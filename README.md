@@ -13,7 +13,7 @@ A small phone-style OS for the LCDWiki **ES3C28P** board: ESP32-S3, 2.8" 320x240
 - **Robo**: an animated companion face. It reacts to touch, noise, the weather, the battery and Spotify, remembers how it has been treated, runs a focus timer and can act as a screensaver on USB power.
 - **Weather**: current conditions and a 5-day forecast from Open-Meteo, for a saved place or your IP location.
 - **Spotify**: a Spotify Connect remote. Now playing with album art, play/pause, skip and volume for whatever device is playing.
-- **Book**: a text reader with a library of covers, chapters, bookmarks, three text sizes, three line spacings and saved progress. Justified text with best-fit line breaks, hyphenation, kerning, italics and bold, in Literata. Hold a page to bookmark it (a ribbon marks the page) or to remove the mark; the reading menu lists the bookmarks and has **Go to**, which jumps to a percentage of the book. Books come from the microSD card.
+- **Book**: a text reader with a library of covers, chapters, bookmarks, three text sizes, three line spacings and saved progress. Justified text with best-fit line breaks, hyphenation, kerning, italics and bold, in Literata. Tap a page's top right corner to bookmark it (a ribbon marks the page). Hold a word to select it and tap another to stretch the selection, then **Highlight**; for a single word there is also **Define**. Every highlight is appended to `clippings.txt` on the card in the Kindle's "My Clippings" layout. The reading menu lists bookmarks and highlights under **Notes** and has **Go to**, which jumps to a percentage of the book. Books come from the microSD card.
 - **Settings**: Wi-Fi, weather location, brightness, display sleep (backlight off after 1 to 30 idle minutes, any touch wakes it), light and deep sleep for battery use, °C/°F, light/dark theme, accent colour (six choices, used by every button, selection and marker), rotation in quarter turns (every screen has a portrait layout), battery, storage and About.
 
 Gestures: swipe in from the left edge to go back, swipe sideways on Home to page through apps, and pull down from the top edge on any screen for the control centre: Wi-Fi, airplane mode, dark theme, rotation, brightness, Sleep and a shortcut to Settings. Push it back up, or tap below it, to close it.
@@ -73,11 +73,22 @@ The portal lists the Perches it finds on the network, with battery, free space a
 
 Books live in `/books` on the microSD card (FAT32), or on a small flash partition when no card is inserted. The book format is UTF-8 text: `\x02Title\nAuthor\n`, then chapters starting with `\x01Title\n`, one paragraph per line. `\x03` toggles italic and `\x04` bold (from `<em>` and `<strong>`), and a soft hyphen (U+00AD) marks a hyphenation point. The converters insert soft hyphens for English books from the hyph-utf8 en-US patterns in `portal/hyph-en-us.txt`, which the board also serves to the portal page. The reader breaks lines by minimum raggedness over each paragraph (as CrossPoint Reader does) and justifies them.
 
+### Dictionary
+
+**Define** reads any StarDict dictionary (`name.ifo`, `name.idx` and `name.dict`; unpack a `name.dict.dz` first) from a `dict` folder at the root of the SD card. A word not found as written is tried without its punctuation and in its base forms. To build an English one from WordNet (Princeton University, free to use and share):
+
+```
+curl -LO https://wordnetcode.princeton.edu/3.0/WordNet-3.0.tar.gz
+python wordnet_dict.py WordNet-3.0.tar.gz dict
+```
+
+then copy the `dict` folder to the card. The first lookup after power-on reads the index once, which takes a moment for a large dictionary.
+
 ### Cloud sync (optional)
 
 Reading positions can be shared between your devices, including the [e-paper Perch](https://github.com/JobinBiju/Perch-OS-E-Paper), through a small Cloudflare Worker on the free tier. It lives in its own repo, **[Perch-Cloud](https://github.com/JobinBiju/Perch-Cloud)**, which also documents the contract the firmwares follow and how to deploy your own.
 
-A device saves its position when you leave the reader or it goes to sleep, and fetches the newest one when a book is opened; the most recently read position wins, and the reader shows "Synced from …" when it moves. There are no accounts: every device holds the same long random **home key**.
+A device saves its position when you leave the reader or it goes to sleep, and fetches the newest one when a book is opened; the most recently read position wins, and the reader shows "Synced from …" when it moves. Bookmarks and highlights are merged between devices too: each is sent when it is made or removed and whenever a book is opened. There are no accounts: every device holds the same long random **home key**.
 
 To switch it on, open the portal, choose **Set up cloud sync**, enter your Worker's address, press **Generate** for a key and save; the page sends both to every paired device. Over USB the same is `sync <address> <key>` on the serial console. Only book file names, positions and device names leave your network.
 
