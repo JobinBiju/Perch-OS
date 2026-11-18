@@ -370,6 +370,24 @@ void handleSerial() {
         Serial.printf("dns %s -> %s (%d) in %lu ms\n", host.c_str(), ok ? ip.toString().c_str() : "fail", ok, (unsigned long)(millis() - t0));
         if (ok) { WiFiClient tc; t0 = millis(); bool c1 = tc.connect(ip, 443, 5000); Serial.printf("tcp 443 %d in %lu ms\n", c1, (unsigned long)(millis() - t0)); tc.stop();
           WiFiClientSecure sc; sc.setInsecure(); sc.setTimeout(8); t0 = millis(); bool c2 = sc.connect(host.c_str(), 443); Serial.printf("tls %d in %lu ms heap %u\n", c2, (unsigned long)(millis() - t0), ESP.getFreeHeap()); sc.stop(); } }
+      else if (!strncmp(line, "write ", 6)) {   // "write /dict/name.ext <bytes>": receive a file over USB into the dict folder (put.py sends it)
+        char path[64]; unsigned long size = 0; bool ok = sscanf(line + 6, "%63s %lu", path, &size) == 2 && !strncmp(path, "/dict/", 6) && !strstr(path, "..") && bookFS;
+        for (const char *c = path + 6; ok && *c; c++) ok = isalnum((uint8_t)*c) || *c == '.' || *c == '-' || *c == '_';
+        if (!ok) Serial.println("put: refused");
+        else {
+          dict::close(); bookFS->mkdir("/dict"); String part = String(path) + ".part"; File f = bookFS->open(part, FILE_WRITE);
+          static uint8_t pb[4096]; unsigned long got = 0; uint32_t idle = millis(); Serial.println("put: ready");
+          while (f && got < size && millis() - idle < 15000) {   // 4 KB at a time, each acknowledged with "+" so the sender never runs ahead
+            int want = (int)min((unsigned long)sizeof pb, size - got), have = 0;
+            while (have < want && millis() - idle < 15000) { int r = Serial.read(pb + have, want - have); if (r > 0) { have += r; idle = millis(); } else delay(1); }
+            if (have < want || f.write(pb, have) != (size_t)have) break;
+            got += have; Serial.print("+");
+          }
+          if (f) f.close();
+          bool done = got == size; if (done) { bookFS->remove(path); done = bookFS->rename(part, path); } else bookFS->remove(part);
+          Serial.printf("\nput: %s %lu bytes\n", done ? "saved" : "FAILED at", got);
+        }
+      }
       else if (!strncmp(line, "dict ", 5)) {   // "dict make": a three-word test dictionary when the volume has none; "dict rm": remove it; "dict <word>": look it up
         String arg = line + 5; arg.trim();
         if (arg == "make" && bookFS && !bookFS->exists("/dict/zz-test.ifo")) {
@@ -400,6 +418,7 @@ void handleSerial() {
 
 void setup() {
   pinMode(PIN_AMP_EN, OUTPUT); digitalWrite(PIN_AMP_EN, HIGH);   // amplifier off (active low) until Robo speaks
+  Serial.setRxBufferSize(16384);   // room for the 4 KB blocks of a file sent with put.py
   Serial.begin(115200);
   Serial.println("\n=== Perch ===");
   set_arduino_panic_handler(panicHook, nullptr);

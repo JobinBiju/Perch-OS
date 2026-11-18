@@ -82,7 +82,7 @@ curl -LO https://wordnetcode.princeton.edu/3.0/WordNet-3.0.tar.gz
 python wordnet_dict.py WordNet-3.0.tar.gz dict
 ```
 
-then copy the `dict` folder to the card. The first lookup after power-on reads the index once, which takes a moment for a large dictionary.
+then copy the `dict` folder to the card. Without a card reader, `python put.py dict/*` sends the files over USB (about 220 KB/s). The first lookup after power-on reads the index once, which takes a moment for a large dictionary.
 
 ### Cloud sync (optional)
 
