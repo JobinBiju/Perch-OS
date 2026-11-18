@@ -6,6 +6,7 @@
 #include "ui.h"
 #include "net.h"
 #include "storage.h"
+#include "sync.h"
 
 extern const char bookStart[] asm("_binary_data_book_txt_start");
 extern const char bookEnd[] asm("_binary_data_book_txt_end");
@@ -16,7 +17,7 @@ struct Book {
   static constexpr int MAXCH = 256;
   const char *chTitle[MAXCH]; int chTitleLen[MAXCH]; const char *chText[MAXCH]; const char *chEnd[MAXCH]; int nch = 0;
   // current chapter layout
-  int ch = -1, fontIdx = 1, lineSp = 1 /* 0 tight, 1 normal, 2 loose */; int *pages = nullptr; int npages = 0, page = 0; uint32_t stamp = 0;   // pages: first line index of each page; stamp: open order, for the library sort
+  int ch = -1, fontIdx = 1, lineSp = 1 /* 0 tight, 1 normal, 2 loose */; int *pages = nullptr; int npages = 0, page = 0; uint32_t stamp = 0, posT = 0;   // posT: when this position was read (epoch seconds), for cloud sync. pages: first line index of each page; stamp: open order, for the library sort
   // layout geometry
   int textX = MARGIN, textY = 30, textW = W - 2 * MARGIN, lineH = 22, lines = 8, lines0 = 6, headH = 0;   // lines0: first page, below the chapter heading
   uint16_t *cover = nullptr, *coverBig = nullptr;   // 32x48 list thumbnail and the 48x72 one of the portrait reading menu, scaled from the sidecar, in PSRAM
@@ -58,11 +59,11 @@ String bookKey(const String &file) { uint32_t h = 2166136261u; for (char c : fil
 // progress value: "chapter offset stamp rel len". offset is absolute (the library's percent); rel/len are the offset
 // within the chapter and the chapter's length when saved, so a re-converted book (more bytes: hyphens, accents)
 // reopens at the same place by scaling rel. stamp counts book openings, so the library can sort by last read.
-bool bookProgress(const String &file, int &ch, int &off, uint32_t *stamp = nullptr, int *rel = nullptr, int *len = nullptr) {
+bool bookProgress(const String &file, int &ch, int &off, uint32_t *stamp = nullptr, int *rel = nullptr, int *len = nullptr, uint32_t *t = nullptr) {
   prefs.begin("books", true); String v = prefs.getString(bookKey(file).c_str(), ""); prefs.end(); if (!v.length()) return false;
-  long f[5] = {0, 0, 0, -1, 0}; int n = 0; const char *q = v.c_str();
-  while (n < 5 && *q) { char *e; f[n++] = strtol(q, &e, 10); q = e; while (*q == ' ') q++; }
-  ch = f[0]; off = f[1]; if (stamp) *stamp = f[2]; if (rel) *rel = f[3]; if (len) *len = f[4];
+  long f[6] = {0, 0, 0, -1, 0, 0}; int n = 0; const char *q = v.c_str();
+  while (n < 6 && *q) { char *e; f[n++] = strtoul(q, &e, 10); q = e; while (*q == ' ') q++; }
+  ch = f[0]; off = f[1]; if (stamp) *stamp = f[2]; if (rel) *rel = f[3]; if (len) *len = f[4]; if (t) *t = f[5];
   return true;
 }
 uint32_t bookNextStamp() { prefs.begin("books", false); uint32_t n = prefs.getUInt("seq", 0) + 1; prefs.putUInt("seq", n); prefs.end(); return n; }
@@ -196,7 +197,7 @@ void bookSave() {
   prefs.begin("books", false);
   const char *ps = bookPageStart(book.page);
   prefs.putString(bookKey(book.file).c_str(), String(book.ch) + " " + String((int)(ps - book.data)) + " " + String(book.stamp) + " " +
-                  String((int)(ps - book.chText[book.ch])) + " " + String((int)(book.chEnd[book.ch] - book.chText[book.ch])));
+                  String((int)(ps - book.chText[book.ch])) + " " + String((int)(book.chEnd[book.ch] - book.chText[book.ch])) + " " + String(book.posT));
   prefs.putString("last", book.file.length() ? book.file : "*"); prefs.putInt("font", book.fontIdx); prefs.putInt("lsp", book.lineSp); prefs.end();
 }
 void bookOpen(int ch, const char *off = nullptr) {
@@ -265,12 +266,34 @@ bool bookLoad(const String &file) {
     Serial.printf("book: loaded %s, %u bytes in %lu ms\n", file.c_str(), (unsigned)got, (unsigned long)(millis() - t0));
   }
   bookIndex(); if (!book.nch) return false;
-  int ch = 0, off = -1, rel = -1, len = 0; bookProgress(file, ch, off, &book.stamp, &rel, &len);
+  int ch = 0, off = -1, rel = -1, len = 0; book.posT = 0; bookProgress(file, ch, off, &book.stamp, &rel, &len, &book.posT);
   ch = constrain(ch, 0, book.nch - 1); const char *pos = nullptr;
   if (rel >= 0 && len > 0) { int now = book.chEnd[ch] - book.chText[ch]; pos = book.chText[ch] + min((long long)now, (long long)rel * now / len); }   // chapter-relative, scaled to the current text
   else if (off >= 0 && book.data + off < book.dataEnd) pos = book.data + off;   // older saves: absolute offset
   bookOpen(ch, pos);
   return true;
+}
+// ---- cloud sync hooks (sync.h)
+int bookPercent();
+void bookTouched() { if (clockValid()) book.posT = (uint32_t)time(nullptr); }   // the reader moved: this position is now the newest
+void bookSyncPush() {
+  if (!syncOn() || book.ch < 0 || !book.file.length() || !book.posT) return;
+  int rel = bookPageStart(book.page) - book.chText[book.ch], len = book.chEnd[book.ch] - book.chText[book.ch];
+  String key = book.file + " " + String(book.ch) + " " + String(rel) + " " + String(book.posT); if (key == sy.lastPushed) return;   // already sent
+  sy.push.ch = book.ch; sy.push.rel = rel; sy.push.len = len; sy.push.pct = bookPercent(); sy.push.t = book.posT; sy.push.dev = cfg.name;
+  sy.pushFile = book.file; sy.lastPushed = key; sy.pushWant = true;
+}
+void bookSyncPull() { if (!syncOn() || book.ch < 0 || !book.file.length()) return; sy.pullDone = false; sy.pullFile = book.file; sy.pullWant = true; }
+// A newer position arrived from another device: go there. Returns the device's name, or "" when this one is already current.
+String bookSyncApply() {
+  if (!sy.pullDone || sy.pullFile != book.file || book.ch < 0) return "";
+  sy.pullDone = false; const SyncPos &g = sy.got;
+  if (!sy.gotOk || g.ch < 0 || g.ch >= book.nch || g.t <= book.posT + 2) return "";
+  int now = book.chEnd[g.ch] - book.chText[g.ch]; const char *pos = book.chText[g.ch] + (g.len > 0 ? min((long long)now, (long long)g.rel * now / g.len) : 0);
+  bool same = g.ch == book.ch && abs((int)(pos - bookPageStart(book.page))) < 200;   // the same page, give or take
+  book.posT = g.t;
+  if (!same) { bookOpen(g.ch, pos); bookSave(); return g.dev.length() ? g.dev : String("another device"); }
+  bookSave(); return "";
 }
 void bookBegin() { prefs.begin("books", true); book.fontIdx = prefs.getInt("font", 1); book.lineSp = constrain(prefs.getInt("lsp", 1), 0, 2); prefs.end(); }
 void bookRelayout() { const char *off = book.pages ? bookPageStart(book.page) : nullptr; bookPaginate(); book.page = off ? bookPageFor(off) : 0; bookSave(); }   // same text stays on screen
@@ -405,7 +428,7 @@ struct ChapterScreen : Screen {
   void onUp(int x, int y) override { if (pressed >= 0 || segPressed >= 0) { pressed = -1; segPressed = -1; dirty = true; } }
   void onTap(int x, int y) override {
     int sg = segmentAt(x, y, MARGIN, CONTENT_Y, W - 2 * MARGIN); if (sg >= 0) { bookSetFont(sg); dirty = true; return; }
-    int i = rowAt(x, y); if (i >= 0) { bookOpen(i); bookSave(); popScreens(2); }
+    int i = rowAt(x, y); if (i >= 0) { bookOpen(i); bookTouched(); bookSave(); popScreens(2); }
   }
 } chapterScreen;
 
@@ -495,8 +518,10 @@ struct ReaderMenuScreen : Screen {
 
 // ---- reader ----
 struct BookScreen : Screen {
-  int downX = 0, downY = 0; uint32_t lastClock = 0;
+  int downX = 0, downY = 0; uint32_t lastClock = 0, noteUntil = 0; String note;
   const char *name() override { return "Book"; }
+  void enter() override { bookSyncPull(); }     // has another device read further?
+  void leave() override { bookSyncPush(); }
   bool titleBack() override { return false; }   // reader has its own 20 px header
   bool backHit(int x, int y) override { return y < 36 && x < 100; }   // generous zone around the 20 px header's chevron
   void onBack() override { bookSave(); popScreen(); }
@@ -542,17 +567,22 @@ struct BookScreen : Screen {
       y += book.lineH;
     }
     // footer: page in chapter, book progress
-    textf(MARGIN, H - 13, C.DIM, F12, textdatum_t::middle_left, "%d / %d", book.page + 1, book.npages);
+    if (noteUntil && (int32_t)(millis() - noteUntil) < 0) { text(MARGIN, H - 13, note.c_str(), C.ACCENT, F12, textdatum_t::middle_left); }   // a sync note takes the page counter's place for a few seconds
+    else textf(MARGIN, H - 13, C.DIM, F12, textdatum_t::middle_left, "%d / %d", book.page + 1, book.npages);
     textf(W - MARGIN, H - 13, C.DIM, F12, textdatum_t::middle_right, "%d%%", bookPercent());
   }
-  void next() { if (book.page + 1 < book.npages) book.page++; else if (book.ch + 1 < book.nch) bookOpen(book.ch + 1); else return; bookSave(); dirty = true; }
-  void prev() { if (book.page > 0) book.page--; else if (book.ch > 0) { bookOpen(book.ch - 1); book.page = book.npages - 1; } else return; bookSave(); dirty = true; }
+  void next() { if (book.page + 1 < book.npages) book.page++; else if (book.ch + 1 < book.nch) bookOpen(book.ch + 1); else return; bookTouched(); bookSave(); dirty = true; }
+  void prev() { if (book.page > 0) book.page--; else if (book.ch > 0) { bookOpen(book.ch - 1); book.page = book.npages - 1; } else return; bookTouched(); bookSave(); dirty = true; }
   void onDown(int x, int y) override { downX = x; downY = y; }
   void onUp(int x, int y) override { int dx = x - downX; if (abs(dx) > 50 && abs(y - downY) < 60) { if (dx < 0) next(); else prev(); } }
   void onTap(int x, int y) override {
     if (x < W / 3) prev(); else if (x > 2 * W / 3) next(); else pushScreen(&readerMenuScreen);
   }
-  void tick() override { if (millis() - lastClock > 30000) { lastClock = millis(); dirty = true; } }
+  void tick() override {
+    if (sy.pullDone) { String from = bookSyncApply(); if (from.length()) { note = "Synced from " + from; noteUntil = millis() + 4000; dirty = true; } }
+    if (noteUntil && (int32_t)(millis() - noteUntil) >= 0) { noteUntil = 0; dirty = true; }
+    if (millis() - lastClock > 30000) { lastClock = millis(); dirty = true; }
+  }
 } bookScreen;
 
 // ---- library screen: entry point of the Book app ----

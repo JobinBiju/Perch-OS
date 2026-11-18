@@ -1,0 +1,7 @@
+name = "perch-sync"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+
+[[kv_namespaces]]
+binding = "PERCH"
+id = "12093339313d48868fc2a4cfd9424db2"

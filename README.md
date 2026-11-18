@@ -73,6 +73,19 @@ The portal lists the Perches it finds on the network, with battery, free space a
 
 Books live in `/books` on the microSD card (FAT32), or on a small flash partition when no card is inserted. The book format is UTF-8 text: `\x02Title\nAuthor\n`, then chapters starting with `\x01Title\n`, one paragraph per line. `\x03` toggles italic and `\x04` bold (from `<em>` and `<strong>`), and a soft hyphen (U+00AD) marks a hyphenation point. The converters insert soft hyphens for English books from the hyph-utf8 en-US patterns in `portal/hyph-en-us.txt`, which the board also serves to the portal page. The reader breaks lines by minimum raggedness over each paragraph (as CrossPoint Reader does) and justifies them.
 
+### Cloud sync (optional)
+
+Reading positions can be shared between your devices through a small Cloudflare Worker (`cloud/`, free tier). A device saves its position when you leave the reader or it goes to sleep, and fetches the newest one when a book is opened; the most recently read position wins, and the reader shows "Synced from …" when it moves. There are no accounts: every device holds the same long random **home key**, and the Worker stores positions under a hash of it.
+
+```
+cd cloud
+bunx wrangler login
+bunx wrangler kv namespace create PERCH    # put the id it prints into wrangler.toml
+bunx wrangler deploy
+```
+
+Then open the portal, choose **Set up cloud sync**, enter the Worker's address, press **Generate** for a key and save; the page sends both to every paired device. Over USB the same is `sync <address> <key>` on the serial console. Only book file names, positions and device names leave your network.
+
 Each book's cover goes along as a sidecar, `name.cov` next to `name.txt`: 4 header bytes (`PC`, width, height) and a 160x240 RGB565 image that the browser scales from the EPUB's cover. The board averages it down to its 32x48 list tile and the 48x72 tile of the portrait reading menu and rounds the corners; books without a cover get a coloured tile with the title's initials. Older, smaller sidecars still load.
 
 Books converted with an older version keep working; drop the EPUB on the portal again to get its cover, hyphenation and accented characters. Reading progress is kept.

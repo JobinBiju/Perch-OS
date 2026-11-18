@@ -173,7 +173,7 @@ void ccTouch(bool t, int x, int y) {
 
 // Display sleep: after cfg.sleepMin minutes without a touch the backlight goes off; the next touch only wakes it.
 uint32_t lastActivity = 0; bool asleep = false, wakeTouch = false;
-void displaySleep() { if (asleep) return; asleep = true; lcd.setBrightness(0); Serial.println("display: sleep"); }
+void displaySleep() { if (asleep) return; asleep = true; lcd.setBrightness(0); bookSyncPush(); Serial.println("display: sleep"); }
 void displayWake() { lastActivity = millis(); if (!asleep) return; asleep = false; lcd.setBrightness(cfg.bright); Serial.println("display: wake"); }
 
 // Battery sleep. Both wake on the touch controller's INT line (GPIO 17, an RTC pin, low while a finger is down).
@@ -197,7 +197,7 @@ RTC_DATA_ATTR uint16_t deepCount = 0, wakeCount = 0, strayCount = 0;   // since 
 bool strayWatch = false;                                                // woken from deep sleep by a touch, and not touched again yet
 void deepSleep(int secs = 0) {
   Serial.printf("power: deep sleep%s\n", secs ? " (timed)" : ""); Serial.flush();
-  bookSave(); deepCount++; batSleepMv = bat.raw;
+  bookSave(); bookSyncPush(); syncFlush(6000); deepCount++; batSleepMv = bat.raw;
   lcd.setBrightness(0); lcd.sleep(); portalNetDown(); WiFi.disconnect(true); WiFi.mode(WIFI_OFF);
   face::codecOff(); neopixelWrite(PIN_LED, 0, 0, 0); if (storageSD) SD_MMC.end();   // nothing but the touch chip stays powered up
   digitalWrite(PIN_AMP_EN, HIGH); gpio_hold_en(AMP_PIN);                             // or the amplifier's enable pin floats and it may switch on
@@ -209,6 +209,7 @@ void deepSleep(int secs = 0) {
 }
 void lightSleep(int secs = 0) {
   Serial.printf("power: light sleep%s\n", secs ? " (timed)" : "");
+  bookSyncPush(); syncFlush(6000);
   xSemaphoreTake(netMutex, portMAX_DELAY);   // let a request in flight finish; the Spotify and weather workers park on this
   ccOpen = false;
   lcd.setBrightness(0); lcd.sleep(); asleep = true;
@@ -336,6 +337,7 @@ void handleSerial() {
         Serial.printf("time %s tz %ld bright %d wifi %d ssid %s wx ok %d city %s err %s home page %d storage %s ip %s gw %s mask %s bssid %s ch %d\n", tb, cfg.tzOff, cfg.bright, WiFi.status(), WiFi.SSID().c_str(), wx.ok, wx.city.c_str(), wx.err.c_str(), homeScreen.page, storageText().c_str(), WiFi.localIP().toString().c_str(), WiFi.gatewayIP().toString().c_str(), WiFi.subnetMask().toString().c_str(), WiFi.BSSIDstr().c_str(), WiFi.channel());
         Serial.printf("sleep %d min asleep %d idle %lu s light %d min deep %d min host %d last light sleep %d s cause %d reset reason %d\n", cfg.sleepMin, asleep, (unsigned long)((millis() - lastActivity) / 1000), cfg.lightMin, cfg.deepMin, bat.host, lastSleepS, lastSleepCause, (int)esp_reset_reason());
         Serial.printf("deep sleeps %d touch wakes %d stray wakes %d\n", deepCount, wakeCount, strayCount);
+        Serial.printf("sync on %d busy %d err %s book %s ch %d posT %lu\n", syncOn(), sy.busy, sy.err.c_str(), book.file.c_str(), book.ch, (unsigned long)book.posT);
         Serial.printf("bat %d mV raw %d pct %d usb %d host %d charging %d full %d lift %d trend %d\n", bat.mv, bat.raw, bat.pct, bat.usb, bat.host, bat.charging, bat.full, bat.lift, bat.trend);
         Serial.printf("sp linked %d busy %d pending %d want %d lastPoll %lu have %d err %s access %d wxbusy %d mutex %s\n", sp.linked, sp.busy, sp.pending, sp.wantPolling, (unsigned long)sp.lastPoll, sp.have, sp.err.c_str(), sp.access.length(), wx.busy, xSemaphoreGetMutexHolder(netMutex) ? pcTaskGetName(xSemaphoreGetMutexHolder(netMutex)) : "free"); }
       else if (c == 'i') { Serial.print("i2c:"); for (int a = 1; a < 127; a++) { Wire.beginTransmission(a); if (!Wire.endTransmission()) Serial.printf(" 0x%02x", a); } Serial.println(); }   // bus scan
@@ -367,6 +369,10 @@ void handleSerial() {
         Serial.printf("dns %s -> %s (%d) in %lu ms\n", host.c_str(), ok ? ip.toString().c_str() : "fail", ok, (unsigned long)(millis() - t0));
         if (ok) { WiFiClient tc; t0 = millis(); bool c1 = tc.connect(ip, 443, 5000); Serial.printf("tcp 443 %d in %lu ms\n", c1, (unsigned long)(millis() - t0)); tc.stop();
           WiFiClientSecure sc; sc.setInsecure(); sc.setTimeout(8); t0 = millis(); bool c2 = sc.connect(host.c_str(), 443); Serial.printf("tls %d in %lu ms heap %u\n", c2, (unsigned long)(millis() - t0), ESP.getFreeHeap()); sc.stop(); } }
+      else if (!strncmp(line, "sync ", 5)) {   // cloud sync: "sync <https address> <home key>", or "sync off"
+        String v = line + 5; v.trim(); int sp1 = v.indexOf(' ');
+        if (v == "off") { cfg.syncUrl = ""; cfg.syncKey = ""; } else if (sp1 > 0) { cfg.syncUrl = v.substring(0, sp1); cfg.syncKey = v.substring(sp1 + 1); cfg.syncKey.trim(); }
+        cfgSave(); sy.lastPushed = ""; Serial.printf("sync: %s\n", syncOn() ? "on" : "off"); }
       else if (!strncmp(line, "spc ", 4)) { sp.clientId = line + 4; spSave(); Serial.println("spotify: client id saved"); }
       else if (!strncmp(line, "sp ", 3)) { sp.refresh = line + 3; sp.access = ""; spSave(); sp.linked = sp.refresh.length() && sp.clientId.length(); sp.err = ""; Serial.println("spotify: token saved"); }
       else if (line[0] == 'k' && line[1] == ' ') { // type text through the keyboard target
@@ -396,7 +402,7 @@ void setup() {
   randomSeed(esp_random());
   applyTz();
   netBegin();
-  spBegin(); storageBegin(); bookBegin(); portalBegin();
+  spBegin(); storageBegin(); bookBegin(); portalBegin(); syncBegin();
   navStack[0] = &homeScreen; navDepth = 1;
   homeScreen.render(); flushAll(); homeScreen.enter();
   neopixelWrite(PIN_LED, 0, 0, 0);

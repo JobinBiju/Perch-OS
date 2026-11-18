@@ -79,7 +79,7 @@ void portalInfo() {   // public: what the pairing page and other Perches' pages 
   String j = "{\"id\":" + jsonStr(portalId()) + ",\"name\":" + jsonStr(cfg.name) + ",\"kind\":\"2.8\\u2033 LCD\",\"type\":\"lcd\",\"host\":\"perch.local\",\"ip\":" + jsonStr(WiFi.localIP().toString());
   j += ",\"battery\":{\"present\":" + String(bat.present ? "true" : "false") + ",\"pct\":" + String(bat.pct) + ",\"charging\":" + String(bat.charging ? "true" : "false") + ",\"usb\":" + String(bat.usb ? "true" : "false") + "}";
   j += ",\"storage\":{\"name\":" + jsonStr(storageName()) + ",\"sd\":" + String(storageSD ? "true" : "false") + ",\"free\":" + String((double)(storageTotal() - storageUsed()), 0) + ",\"total\":" + String((double)storageTotal(), 0) + "}";
-  j += ",\"books\":" + String(nlib) + ",\"paired\":" + String(tokOk(t) ? "true" : "false") + ",\"pairing\":" + String(pairShowing ? "true" : "false") + ",\"left\":" + String(pairLeft()) + "}";
+  j += ",\"books\":" + String(nlib) + ",\"paired\":" + String(tokOk(t) ? "true" : "false") + ",\"sync\":" + String(syncOn() ? "true" : "false") + ",\"pairing\":" + String(pairShowing ? "true" : "false") + ",\"left\":" + String(pairLeft()) + "}";
   portal.send(200, "application/json", j);
 }
 void portalPair() {
@@ -163,6 +163,17 @@ void portalBegin() {
   portal.on("/api/unpair", HTTP_POST, portalUnpair);
   portal.on("/api/devices", HTTP_GET, portalDevices);
   portal.on("/api/book", HTTP_GET, portalBook);
+  portal.on("/api/sync", HTTP_GET, []() {   // cloud sync settings; the page copies them to every device so they share one home key
+    if (!need()) return;
+    portal.send(200, "application/json", "{\"url\":" + jsonStr(cfg.syncUrl) + ",\"key\":" + jsonStr(cfg.syncKey) + ",\"on\":" + String(syncOn() ? "true" : "false") + ",\"err\":" + jsonStr(sy.err) + "}");
+  });
+  portal.on("/api/sync", HTTP_POST, []() {
+    if (!need()) return;
+    String u = portal.arg("url"), k = portal.arg("key"); u.trim(); k.trim(); while (u.endsWith("/")) u.remove(u.length() - 1);
+    if (u.length() && (!u.startsWith("https://") || k.length() < 24 || k.length() > 128)) { portal.send(400, "text/plain", "needs an https address and a key of 24 characters or more"); return; }
+    cfg.syncUrl = u; cfg.syncKey = u.length() ? k : String(); cfgSave(); sy.lastPushed = ""; sy.err = "";
+    portal.send(200, "text/plain", "ok");
+  });
   // no-cache: a browser holding last week's page or converter would keep sending books in the old format
   portal.on("/", HTTP_GET, []() { portal.sendHeader("Cache-Control", "no-cache"); portal.send_P(200, "text/html", portalHtml, portalHtmlEnd - portalHtml - 1); });
   portal.on("/convert.js", HTTP_GET, []() { portal.sendHeader("Cache-Control", "no-cache"); portal.send_P(200, "application/javascript", portalJs, portalJsEnd - portalJs - 1); });

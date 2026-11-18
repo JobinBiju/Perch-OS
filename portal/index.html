@@ -118,6 +118,8 @@
   .keep { display: flex; align-items: center; gap: 10px; cursor: pointer; } .keep input { position: absolute; opacity: 0; }
   .wide { height: 48px; border-radius: 14px; width: 100%; font-size: 15px; }
   .msg { text-align: center; font-size: 13px; color: var(--red); min-height: 18px; margin-top: -12px; }
+  .field { display: flex; flex-direction: column; gap: 6px; } .field input { height: 44px; border-radius: 12px; border: 1px solid var(--edge); padding: 0 14px; font: inherit; color: var(--text); outline: 0; width: 100%; min-width: 0; } .field input:focus { border-color: var(--blue); box-shadow: 0 0 0 4px var(--bluebg); }
+  .syncline { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--dim); padding: 0 4px; }
   .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); background: var(--text); color: #fff; padding: 10px 16px; border-radius: 12px; font-size: 14px; z-index: 20; max-width: calc(100% - 32px); }
 
   @media (max-width: 760px) {
@@ -309,7 +311,8 @@ function libraryView() {
       <button class="btn lg pri addbtn" data-act="add">${ic("plus", 16)}Add books</button></div></div>
       <button class="drop" data-act="choose">${ic("upload", 20)}<span><b>Drop EPUBs here</b> or choose files. They are converted in your browser, and only the text is sent to your devices.</span></button>
       <div class="list"><div class="cols"><span></span><span>Book</span><span>On</span><span>Progress</span><span></span></div>
-        ${rows || `<div class="empty">${all.length ? "No book matches that search" : "No books yet. Add an EPUB to get started."}</div>`}</div></section>
+        ${rows || `<div class="empty">${all.length ? "No book matches that search" : "No books yet. Add an EPUB to get started."}</div>`}</div>
+      <div class="syncline"><span>${(S.self.info || {}).sync ? "Reading positions sync between your devices through the cloud." : "Reading positions are kept on each device."}</span><a class="b" href="#" data-act="sync">${(S.self.info || {}).sync ? "Cloud sync settings" : "Set up cloud sync"}</a></div></section>
   </main><button class="btn lg pri fab" data-act="add">${ic("plus", 18)}Add books</button>`;
 }
 function bookView(file) {
@@ -389,10 +392,27 @@ function addDialog() {
       <button class="btn lg pri" data-act="send" ${!a.sending && n.ready && !n.conv && count && !a.done ? "" : "disabled"}>${ic("send", 16)}${a.sending ? "Sending…" : "Send to " + count + (count === 1 ? " device" : " devices")}</button></div></div></div></div>`;
 }
 
+function syncDialog() {
+  const y = S.sync, n = usable().length;
+  return `<div class="scrim" data-act="closesync"><div class="dialog" role="dialog" aria-label="Cloud sync"><span class="grab"></span>
+    <div class="row" style="justify-content:space-between"><h2>Cloud sync</h2><button class="x" aria-label="Close" data-act="closesync">${ic("x", 18)}</button></div>
+    <p class="dim">Your devices save where you are in each book to your own sync service and pick up the newest position when a book is opened. They all need the same address and home key; saving here sends both to every paired device that is online.</p>
+    <label class="field"><span class="cap">Service address</span><input id="surl" type="url" placeholder="https://perch-sync.example.workers.dev" value="${esc(y.url)}"></label>
+    <label class="field"><span class="cap">Home key</span><span class="row" style="gap:8px"><input id="skey" type="text" autocomplete="off" spellcheck="false" placeholder="a long random key" value="${esc(y.key)}"><button class="btn lg" type="button" data-act="genkey">Generate</button></span></label>
+    <div class="s13" style="color:${y.bad ? "var(--red)" : "var(--dim)"};min-height:18px">${esc(y.msg || "Anyone with the key can read and change your positions. Keep it private.")}</div>
+    <div class="dfoot"><button class="btn lg danger" data-act="syncoff">Turn off</button><div class="row" style="gap:12px;flex:1;justify-content:flex-end"><button class="btn lg" data-act="closesync">Cancel</button>
+      <button class="btn lg pri" data-act="savesync">Save to ${n} ${n === 1 ? "device" : "devices"}</button></div></div></div></div>`;
+}
+async function saveSync(url, key) {
+  const devs = usable(), bad = [];
+  for (const d of devs) { try { await post(d, "/api/sync?url=" + encodeURIComponent(url) + "&key=" + encodeURIComponent(key)); } catch (e) { bad.push(d.name + ": " + e.message); } }
+  if (bad.length) { S.sync.msg = bad.join("; "); S.sync.bad = true; S.sync.url = url; S.sync.key = key; return render(); }
+  S.sync = null; toast(url ? "Cloud sync saved" : "Cloud sync turned off"); await refresh(false);
+}
 function render() {
   const app = $("#app"), q = document.activeElement && document.activeElement.id === "q", pos = q ? document.activeElement.selectionStart : 0;
   const m = /^#\/book\/(.+)$/.exec(location.hash);
-  app.innerHTML = S.pairFor ? pairView() : (m ? bookView(decodeURIComponent(m[1])) : libraryView()) + (S.add ? addDialog() : "");
+  app.innerHTML = S.pairFor ? pairView() : (m ? bookView(decodeURIComponent(m[1])) : libraryView()) + (S.add ? addDialog() : "") + (S.sync ? syncDialog() : "");
   if (q && $("#q")) { $("#q").focus(); $("#q").setSelectionRange(pos, pos); }
   if (S.pairFor) wirePair(); else loadCovers();
 }
@@ -482,8 +502,13 @@ async function sendAll() {
 document.addEventListener("click", async e => {
   const t = e.target.closest("[data-act]"); if (!t) return; const act = t.dataset.act;
   if (act === "closeadd") { if (e.target !== t && !e.target.closest("button[data-act=closeadd]")) return; if (S.add && S.add.sending) return; S.add = null; return render(); }
+  if (act === "closesync") { if (e.target !== t && !e.target.closest("button[data-act=closesync]")) return; S.sync = null; return render(); }
   e.preventDefault();
-  if (act === "scan") { S.scanning = true; render(); refresh(true); }
+  if (act === "sync") { S.sync = {url: "", key: "", msg: ""}; try { const j = await (await get(withT(S.self, "/api/sync"))).json(); S.sync.url = j.url; S.sync.key = j.key; if (j.err) S.sync.msg = "Last attempt failed: " + j.err; } catch (err) {} render(); }
+  else if (act === "genkey") { const a = new Uint8Array(24); crypto.getRandomValues(a); $("#skey").value = [...a].map(b => b.toString(16).padStart(2, "0")).join(""); }
+  else if (act === "savesync") { const url = $("#surl").value.trim().replace(/\/+$/, ""), key = $("#skey").value.trim(); if (!/^https:\/\//.test(url) || key.length < 24) { S.sync.url = url; S.sync.key = key; S.sync.msg = "Enter an https address and a key of at least 24 characters"; S.sync.bad = true; return render(); } saveSync(url, key); }
+  else if (act === "syncoff") saveSync("", "");
+  else if (act === "scan") { S.scanning = true; render(); refresh(true); }
   else if (act === "add") openAdd();
   else if (act === "choose") $("#pick").click();
   else if (act === "rmfile") { S.add.items.splice(+t.dataset.k, 1); render(); }
@@ -514,7 +539,7 @@ document.addEventListener("dragover", e => e.preventDefault());
 document.addEventListener("drop", e => { e.preventDefault(); drag = 0; document.body.classList.remove("dragging"); if (!S.pairFor && e.dataTransfer.files.length) openAdd(e.dataTransfer.files); });
 window.addEventListener("hashchange", () => { S.allCh = false; S.detail = null; render(); const m = /^#\/book\/(.+)$/.exec(location.hash); if (m) loadDetail(decodeURIComponent(m[1])); window.scrollTo(0, 0); });
 boot().then(() => { const m = /^#\/book\/(.+)$/.exec(location.hash); if (m && !S.pairFor) loadDetail(decodeURIComponent(m[1])); });
-setInterval(() => { if (!S.pairFor && !S.add && document.visibilityState === "visible") refresh(false); }, 30000);
+setInterval(() => { if (!S.pairFor && !S.add && !S.sync && document.visibilityState === "visible") refresh(false); }, 30000);
 </script>
 </body>
 </html>

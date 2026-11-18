@@ -9,7 +9,7 @@
 
 Preferences prefs;
 SemaphoreHandle_t netMutex = xSemaphoreCreateMutex();   // one TLS session at a time (heap + reliability)
-struct Settings { String ssid, pass; int bright = 220; int rot = 0 /* 0..3 quarter turns */; bool fahrenheit = false, dark = true, roboSound = true, ambient = false, wifiOn = true, airplane = false; int sleepMin = 0 /* 0 = never */, lightMin = 0, deepMin = 0 /* battery sleep, minutes idle */, accent = 0; long tzOff = 0; String notes, place = "Kalamassery, Kerala", name = "Perch" /* shown by the portal */; } cfg;
+struct Settings { String ssid, pass; int bright = 220; int rot = 0 /* 0..3 quarter turns */; bool fahrenheit = false, dark = true, roboSound = true, ambient = false, wifiOn = true, airplane = false; int sleepMin = 0 /* 0 = never */, lightMin = 0, deepMin = 0 /* battery sleep, minutes idle */, accent = 0; long tzOff = 0; String notes, place = "Kalamassery, Kerala", name = "Perch" /* shown by the portal */, syncUrl, syncKey /* cloud sync: the Worker's address and the home key */; } cfg;
 
 // Settings live in NVS namespace "perch". Boards flashed before the rename kept them under "robo":
 // copy the known keys across once, then drop the old namespace.
@@ -34,13 +34,13 @@ void cfgLoad() {
   prefs.begin("perch", true);
   cfg.ssid = prefs.getString("ssid", ""); cfg.pass = prefs.getString("pass", "");
   cfg.bright = prefs.getInt("bright", 220); cfg.fahrenheit = prefs.getBool("fahr", false); cfg.dark = prefs.getBool("dark", true); cfg.rot = prefs.getInt("rot", prefs.getBool("flip", false) ? 2 : 0) & 3; cfg.roboSound = prefs.getBool("rsound", true); cfg.ambient = prefs.getBool("ambient", false); cfg.wifiOn = prefs.getBool("wifion", true); cfg.airplane = prefs.getBool("airpl", false); cfg.sleepMin = prefs.getInt("sleep", 0); cfg.lightMin = prefs.getInt("lsleep", 0); cfg.deepMin = prefs.getInt("dsleep", 0); cfg.accent = prefs.getInt("accent", 0);
-  cfg.tzOff = prefs.getLong("tzoff", 0); cfg.notes = prefs.getString("notes", ""); cfg.place = prefs.getString("place", "Kalamassery, Kerala");
+  cfg.tzOff = prefs.getLong("tzoff", 0); cfg.notes = prefs.getString("notes", ""); cfg.place = prefs.getString("place", "Kalamassery, Kerala"); cfg.syncUrl = prefs.getString("surl", ""); cfg.syncKey = prefs.getString("skey", "");
   prefs.end();
 }
 void cfgSave() {
   prefs.begin("perch", false);
   prefs.putString("ssid", cfg.ssid); prefs.putString("pass", cfg.pass); prefs.putInt("bright", cfg.bright);
-  prefs.putBool("fahr", cfg.fahrenheit); prefs.putBool("dark", cfg.dark); prefs.putInt("rot", cfg.rot); prefs.putBool("rsound", cfg.roboSound); prefs.putBool("ambient", cfg.ambient); prefs.putBool("wifion", cfg.wifiOn); prefs.putBool("airpl", cfg.airplane); prefs.putInt("sleep", cfg.sleepMin); prefs.putInt("lsleep", cfg.lightMin); prefs.putInt("dsleep", cfg.deepMin); prefs.putInt("accent", cfg.accent); prefs.putLong("tzoff", cfg.tzOff); prefs.putString("notes", cfg.notes); prefs.putString("place", cfg.place);
+  prefs.putBool("fahr", cfg.fahrenheit); prefs.putBool("dark", cfg.dark); prefs.putInt("rot", cfg.rot); prefs.putString("surl", cfg.syncUrl); prefs.putString("skey", cfg.syncKey); prefs.putBool("rsound", cfg.roboSound); prefs.putBool("ambient", cfg.ambient); prefs.putBool("wifion", cfg.wifiOn); prefs.putBool("airpl", cfg.airplane); prefs.putInt("sleep", cfg.sleepMin); prefs.putInt("lsleep", cfg.lightMin); prefs.putInt("dsleep", cfg.deepMin); prefs.putInt("accent", cfg.accent); prefs.putLong("tzoff", cfg.tzOff); prefs.putString("notes", cfg.notes); prefs.putString("place", cfg.place);
   prefs.end();
 }
 
