@@ -15,7 +15,3 @@ preview-*.png
 # The book embedded in the firmware (copyrighted text, not redistributed):
 # create data/book.txt locally before building, see README
 data/book.txt
-
-# Cloudflare
-cloud/.wrangler/
-cloud/node_modules/

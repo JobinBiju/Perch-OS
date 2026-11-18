@@ -1,5 +1,5 @@
 #pragma once
-// Cloud sync of reading positions (cloud/src/index.js, a Cloudflare Worker). Every Perch of one owner holds the same
+// Cloud sync of reading positions through a Cloudflare Worker (github.com/JobinBiju/Perch-Cloud, whose README is the contract). Every Perch of one owner holds the same
 // "home key"; a device pushes its position when the reader is left or the device sleeps, and asks for the newest one when
 // a book is opened. Positions are chapter + bytes into the chapter (with the chapter's length, so copies converted
 // differently still land on the same paragraph) and carry the time they were read; the newest wins.
