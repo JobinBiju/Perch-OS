@@ -323,7 +323,15 @@ bool notesDirty = false;   // changed since the last cloud merge
 String noteKey(const String &file, char kind) { String k = bookKey(file); k.setCharAt(0, kind); return k; }
 String marksKey(const String &file) { return noteKey(file, 'm'); }
 uint32_t noteNow() { return clockValid() ? (uint32_t)time(nullptr) : 0; }
-uint32_t noteId() { uint32_t i; do i = esp_random(); while (!i); return i; }
+uint32_t noteId() {   // random, non-zero, and not one this book already uses for a note or a removal
+  for (;;) {
+    uint32_t i = esp_random(); bool taken = !i;
+    for (int k = 0; k < nmarks && !taken; k++) taken = marks[k].id == i;
+    for (int k = 0; k < nnotes && !taken; k++) taken = notes[k].id == i;
+    for (int k = 0; k < ntombs && !taken; k++) taken = tombs[k].id == i;
+    if (!taken) return i;
+  }
+}
 void marksLoad() {
   prefs.begin("books", true); String m = prefs.getString(noteKey(book.file, 'm').c_str(), ""), h = prefs.getString(noteKey(book.file, 'h').c_str(), ""), x = prefs.getString(noteKey(book.file, 'x').c_str(), ""); prefs.end();
   nmarks = nnotes = ntombs = 0; notesDirty = false;
