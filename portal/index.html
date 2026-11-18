@@ -398,7 +398,7 @@ async function loadDetail(file) {   // chapters from the first device that answe
   const b = library().find(x => x.file === file); if (!b) return;
   const det = {file, chapters: [], nch: 0, ch: -1, added: 0, by: {}}; let best = -2;
   await Promise.all(b.on.filter(o => o.d.online && o.d.paired).map(async o => {
-    try { const j = await (await get(withT(o.d, "/api/book?file=" + encodeURIComponent(file)), 15000)).json(); det.by[o.d.id] = j; if (!det.chapters.length) { det.chapters = j.chapters; det.nch = j.nch; det.added = j.added; } if (j.pct > best) { best = j.pct; det.ch = j.ch; } } catch (e) {}
+    try { const j = await (await get(withT(o.d, "/api/book?file=" + encodeURIComponent(file)), 15000)).json(); det.by[o.d.id] = j; N.chs[file] = N.chs[file] || j.chapters; if (!det.chapters.length) { det.chapters = j.chapters; det.nch = j.nch; det.added = j.added; } if (j.pct > best) { best = j.pct; det.ch = j.ch; } } catch (e) {}
   }));
   if (location.hash === "#/book/" + encodeURIComponent(file)) { S.detail = det; render(); }
 }
@@ -461,7 +461,16 @@ async function saveSync(url, key) {
 }
 // ---- notes: bookmarks, highlights and the reader's own notes from every device, kept by the cloud sync service.
 // The page reads and changes them there directly, with the address and home key the device it came from holds.
-const N = {cloud: undefined, items: null, at: 0, err: "", busy: false, edit: null, kind: "all", q: ""};
+const N = {cloud: undefined, items: null, at: 0, err: "", busy: false, edit: null, kind: "all", q: "", chs: {}};   // chs: each book's chapter titles, as a device lists them
+async function loadChapters(files) {   // one book at a time, from a device that holds it
+  for (const f of files) {
+    if (f in N.chs) continue; const b = library().find(x => x.file === f), o = b && b.on.find(o => o.d.online && o.d.paired); if (!o) continue;
+    N.chs[f] = null;
+    try { N.chs[f] = (await (await get(withT(o.d, "/api/book?file=" + encodeURIComponent(f)), 15000)).json()).chapters; render(); } catch (e) { delete N.chs[f]; }
+  }
+}
+// a chapter as the device names it: "Ch 6" for a title like "6 Wada" or "Chapter 6", else the title; nothing until the titles are known
+function chLabel(file, ch) { const t = (N.chs[file] || [])[ch]; if (t == null) return ""; const m = /^(?:chapter\s+)?(\d+)(?:\s|$|[.:])/i.exec(t); return m ? "Ch " + m[1] : t.length > 28 ? t.slice(0, 27) + "…" : t; }
 async function cloudCfg() {
   if (N.cloud !== undefined) return N.cloud;
   try { const j = await (await get(withT(S.self, "/api/sync"))).json(); N.cloud = j.url && j.key ? {url: j.url, key: j.key} : null; } catch (e) { return null; }
@@ -477,7 +486,7 @@ async function loadNotes(force) {
   N.busy = true;
   try { if (await cloudCfg()) { N.items = await cloud("/v1/notes"); N.at = Date.now(); N.err = ""; } else N.items = null; }
   catch (e) { N.err = "Could not reach the sync service"; }
-  N.busy = false; render();
+  N.busy = false; render(); if (N.items) loadChapters(Object.keys(N.items));
 }
 const kindOf = it => it.k === "m" ? "m" : it.n ? "n" : "h";
 const KIND = {h: "Highlight", n: "Note", m: "Bookmark"};
@@ -491,7 +500,7 @@ function noteItem(it) {
   const note = editing ? `<div class="nedit"><textarea id="ntext" maxlength="2000" placeholder="Write a note" aria-label="Note">${esc(it.n || "")}</textarea>
       <div class="row" style="gap:8px;justify-content:flex-end"><button class="btn" data-act="ncancel">Cancel</button><button class="btn pri" data-act="nsave" data-id="${it.id}" data-book="${esc(it.book)}">Save</button></div></div>`
     : it.n ? `<div class="nbox">${ic("notepen", 16, "#0071e3")}<span>${esc(it.n)}</span></div>` : "";
-  const where = [KIND[k], "Ch " + (it.ch + 1), it.pct + "%", it.dev, day(it.t)].filter(Boolean).join(" · ");
+  const where = [KIND[k], chLabel(it.book, it.ch), it.pct + "%", it.dev, day(it.t)].filter(Boolean).join(" · ");
   const acts = (it.k === "h" && !editing ? `<button class="lnk" data-act="nedit" data-id="${it.id}" aria-label="${it.n ? "Edit note" : "Add a note"}">${ic(it.n ? "pencil" : "plus", 14, "#0071e3")}${it.n ? "Edit note" : "Add note"}</button>` : "")
     + `<button class="icb" aria-label="Delete" data-act="ndel" data-id="${it.id}" data-book="${esc(it.book)}">${ic("trash", 16, "#6a6a75")}</button>`;
   return `<article class="note">${words}${note}<div class="meta"><span>${ic(k === "n" ? "notepen" : k === "h" ? "highlighter" : "bookmark", 14, "#6a6a75")}<span class="ell">${esc(where)}</span></span><span class="row" style="gap:4px">${acts}</span></div></article>`;
@@ -539,7 +548,7 @@ function exportNotes() {   // Markdown, grouped by book, in the order shown
     for (const x of list.filter(x => x.book === b.file).sort((p, r) => p.ch - r.ch || p.rel - r.rel)) {
       md += "\n" + (x.k === "h" ? "> " + (x.q || "(words not synced yet)").replace(/\n/g, "\n> ") : x.q ? "Bookmark: " + x.q : "Bookmark") + "\n";
       if (x.n) md += "\n" + x.n + "\n";
-      md += `\n${KIND[kindOf(x)]} · Ch ${x.ch + 1} · ${x.pct}%${x.dev ? " · " + x.dev : ""} · ${new Date(x.t * 1000).toLocaleDateString([], {day: "numeric", month: "short", year: "numeric"})}\n`;
+      md += `\n${[KIND[kindOf(x)], chLabel(x.book, x.ch)].filter(Boolean).join(" · ")} · ${x.pct}%${x.dev ? " · " + x.dev : ""} · ${new Date(x.t * 1000).toLocaleDateString([], {day: "numeric", month: "short", year: "numeric"})}\n`;
     }
   }
   const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([md], {type: "text/markdown"})); a.download = "perch-notes.md"; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
