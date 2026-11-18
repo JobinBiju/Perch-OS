@@ -93,7 +93,19 @@ int glyphAdv(int cp, int style = 0) {
   int w = frame.textWidth(uu) - frame.textWidth(u);   // textWidth of one glyph is its ink extent (italics overhang): "cc" - "c" is the advance
   if (c) *c = w; return w;
 }
-int runWidth(const char *p, const char *e, int style = 0) { int w = 0; while (p < e) { int cp = utf8Next(p, e); if (cp != 0xAD) w += glyphAdv(cp, style); } return w; }
+// Kerning pairs for the reader faces (fonts_data.h, from the fonts' own tables): px to add between two codepoints.
+struct KernTab { const KernPair *p; int n; };
+#define KT(x) {kern_##x, (int)(sizeof kern_##x / sizeof *kern_##x)}
+static const KernTab KERN[3][4] = {{KT(rd12), KT(rd12i), KT(rd12b), KT(rd12z)}, {KT(rd16), KT(rd16i), KT(rd16b), KT(rd16z)}, {KT(rd20), KT(rd20i), KT(rd20b), KT(rd20z)}};
+#undef KT
+int kernOf(int a, int b, int style = 0) {
+  if (a > 0xFFFF || b > 0xFFFF) return 0;
+  const KernTab &t = KERN[constrain(book.fontIdx, 0, 2)][style & 3]; uint32_t key = (uint32_t)a << 16 | b; int lo = 0, hi = t.n - 1;
+  while (lo <= hi) { int mid = (lo + hi) / 2; uint32_t m = (uint32_t)t.p[mid].a << 16 | t.p[mid].b; if (m == key) return t.p[mid].k; if (m < key) lo = mid + 1; else hi = mid - 1; }
+  return 0;
+}
+// the width of a run of text as it will be drawn: advances plus kerning, soft hyphens skipped
+int runWidth(const char *p, const char *e, int style = 0) { int w = 0, prev = 0; while (p < e) { int cp = utf8Next(p, e); if (cp == 0xAD) continue; w += glyphAdv(cp, style) + (prev ? kernOf(prev, cp, style) : 0); prev = cp; } return w; }
 static inline bool isToggle(char c) { return c == 3 || c == 4; }
 int stripShy(const char *p, const char *e, char *out, int cap) {   // copy [p, e) without soft hyphens; returns the length
   int n = 0; while (p < e && n < cap - 1) { if ((uint8_t)p[0] == 0xC2 && p + 1 < e && (uint8_t)p[1] == 0xAD) { p += 2; continue; } out[n++] = *p++; } out[n] = 0; return n;
@@ -252,6 +264,7 @@ int wrap2(const String &t, const lgfx::IFont *f, int w, String &l1, String &l2) 
   return 2;
 }
 // load a book (file name under /books, or "" for the embedded one) and restore its position
+void marksLoad(); String marksKey(const String &file);
 bool bookLoad(const String &file) {
   if (book.buf) { free(book.buf); book.buf = nullptr; }
   book.ch = -1; book.nch = 0; book.file = file;
@@ -270,7 +283,7 @@ bool bookLoad(const String &file) {
   ch = constrain(ch, 0, book.nch - 1); const char *pos = nullptr;
   if (rel >= 0 && len > 0) { int now = book.chEnd[ch] - book.chText[ch]; pos = book.chText[ch] + min((long long)now, (long long)rel * now / len); }   // chapter-relative, scaled to the current text
   else if (off >= 0 && book.data + off < book.dataEnd) pos = book.data + off;   // older saves: absolute offset
-  bookOpen(ch, pos);
+  bookOpen(ch, pos); marksLoad();
   return true;
 }
 // ---- cloud sync hooks (sync.h)
@@ -294,6 +307,67 @@ String bookSyncApply() {
   book.posT = g.t;
   if (!same) { bookOpen(g.ch, pos); bookSave(); return g.dev.length() ? g.dev : String("another device"); }
   bookSave(); return "";
+}
+// ---- bookmarks: places in the text like the saved place (chapter, bytes into it, its length), kept per book in NVS as
+// "ch rel len pct,ch rel len pct,..." under "m<hash>", in reading order
+struct Mark { int ch, rel, len, pct; };
+static constexpr int MAX_MARKS = 32; Mark marks[MAX_MARKS]; int nmarks = 0;
+String marksKey(const String &file) { String k = bookKey(file); k.setCharAt(0, 'm'); return k; }
+void marksLoad() {
+  prefs.begin("books", true); String v = prefs.getString(marksKey(book.file).c_str(), ""); prefs.end(); nmarks = 0; const char *q = v.c_str();
+  while (*q && nmarks < MAX_MARKS) {
+    Mark m; if (sscanf(q, "%d %d %d %d", &m.ch, &m.rel, &m.len, &m.pct) == 4 && m.ch >= 0 && m.ch < book.nch) marks[nmarks++] = m;
+    const char *c = strchr(q, ','); if (!c) break; q = c + 1;
+  }
+}
+void marksSave() {
+  String v; for (int i = 0; i < nmarks; i++) { if (i) v += ','; v += String(marks[i].ch) + " " + String(marks[i].rel) + " " + String(marks[i].len) + " " + String(marks[i].pct); }
+  prefs.begin("books", false); if (nmarks) prefs.putString(marksKey(book.file).c_str(), v); else prefs.remove(marksKey(book.file).c_str()); prefs.end();
+}
+const char *markAt(const Mark &m) {   // where a mark points in this copy of the book
+  long long now = book.chEnd[m.ch] - book.chText[m.ch]; return book.chText[m.ch] + (m.len > 0 ? min(now, (long long)m.rel * now / m.len) : 0);
+}
+int markHere() {   // the mark on the page being read, or -1
+  if (book.ch < 0) return -1;
+  const char *a = bookPageStart(book.page), *b = book.page + 1 < book.npages ? bookPageStart(book.page + 1) : book.chEnd[book.ch];
+  for (int i = 0; i < nmarks; i++) if (marks[i].ch == book.ch) { const char *p = markAt(marks[i]); if (p >= a && p < b) return i; }
+  return -1;
+}
+void markRemove(int i) { if (i < 0 || i >= nmarks) return; for (int k = i + 1; k < nmarks; k++) marks[k - 1] = marks[k]; nmarks--; marksSave(); }
+// add a mark for this page (1), take it away (-1), or 0 when the list is full
+int markToggle() {
+  int i = markHere(); if (i >= 0) { markRemove(i); return -1; }
+  if (nmarks >= MAX_MARKS || book.ch < 0) return 0;
+  Mark m{book.ch, (int)(bookPageStart(book.page) - book.chText[book.ch]), (int)(book.chEnd[book.ch] - book.chText[book.ch]), bookPercent()};
+  int at = 0; while (at < nmarks && (marks[at].ch < m.ch || (marks[at].ch == m.ch && markAt(marks[at]) <= book.chText[m.ch] + m.rel))) at++;
+  for (int k = nmarks; k > at; k--) marks[k] = marks[k - 1];
+  marks[at] = m; nmarks++; marksSave(); return 1;
+}
+String markText(const Mark &m, size_t maxLen = 60) {   // the first words at a mark, for the list: markers and soft hyphens dropped
+  String o; const char *p = markAt(m), *e = book.chEnd[m.ch];
+  while (p < e && o.length() < maxLen) {
+    uint8_t c = *p++;
+    if (c == '\n') { if (o.length() && o[o.length() - 1] != ' ') o += ' '; continue; }
+    if (c < 0x20) continue;
+    if (c == 0xC2 && p < e && (uint8_t)*p == 0xAD) { p++; continue; }
+    o += (char)c;
+  }
+  o.trim(); return o;
+}
+String chapterLabel(int ch) {   // "3 \xC2\xB7 The Human Spark", or the bare title when it has no number
+  const char *ct; int cl; int num = bookChapterNum(ch, ct, cl); char t[80];
+  if (num) snprintf(t, sizeof t, "%d \xC2\xB7 %.*s", num, min(cl, 60), ct); else snprintf(t, sizeof t, "%.*s", min(cl, 60), ct);
+  return t;
+}
+void bookGoTo(int ch, const char *at) { bookOpen(ch, at); bookTouched(); bookSave(); }
+int chapterAtPercent(int pct) {   // the chapter that holds pct percent of the book's bytes, as the percent shown counts them
+  const char *t = book.data + (long long)(book.dataEnd - book.data) * constrain(pct, 0, 100) / 100; int ch = 0;
+  while (ch + 1 < book.nch && book.chText[ch + 1] <= t) ch++;
+  return ch;
+}
+void bookGoPercent(int pct) {
+  const char *t = book.data + (long long)(book.dataEnd - book.data) * constrain(pct, 0, 100) / 100; int ch = chapterAtPercent(pct);
+  bookGoTo(ch, t < book.chText[ch] ? book.chText[ch] : t >= book.chEnd[ch] ? book.chEnd[ch] - 1 : t);
 }
 void bookBegin() { prefs.begin("books", true); book.fontIdx = prefs.getInt("font", 1); book.lineSp = constrain(prefs.getInt("lsp", 1), 0, 2); prefs.end(); }
 void bookRelayout() { const char *off = book.pages ? bookPageStart(book.page) : nullptr; bookPaginate(); book.page = off ? bookPageFor(off) : 0; bookSave(); }   // same text stays on screen
@@ -353,7 +427,7 @@ String libLast() { prefs.begin("books", true); String l = prefs.getString("last"
 bool bookDelete(const String &file) {
   if (!bookFS || !file.length()) return false;
   if (book.file == file && book.buf) { free(book.buf); book.buf = nullptr; free(book.cover); book.cover = nullptr; free(book.coverBig); book.coverBig = nullptr; book.ch = -1; book.nch = 0; book.data = book.dataEnd = nullptr; }
-  prefs.begin("books", false); prefs.remove(bookKey(file).c_str()); if (prefs.getString("last", "") == file) prefs.remove("last"); prefs.end();
+  prefs.begin("books", false); prefs.remove(bookKey(file).c_str()); prefs.remove(marksKey(file).c_str()); if (prefs.getString("last", "") == file) prefs.remove("last"); prefs.end();
   bookFS->remove(String(BOOK_DIR) + "/" + coverName(file));
   { String big = coverName(file); if (big.length()) { big.setCharAt(big.length() - 1, 'l'); big.setCharAt(big.length() - 2, 'v'); bookFS->remove(String(BOOK_DIR) + "/" + big); } }   // name.cvl, the e-paper Perch's large cover, if one was ever sent here
   return bookFS->remove(String(BOOK_DIR) + "/" + file);
@@ -433,17 +507,79 @@ struct ChapterScreen : Screen {
   }
 } chapterScreen;
 
+// ---- bookmarks: one row per mark (chapter and percent, then its first words) with a bin; a tap opens the page ----
+String fitText(String v, const lgfx::IFont *f, int w) { frame.setFont(f); if (frame.textWidth(v) <= w) return v; while (v.length() > 1 && frame.textWidth(v + "...") > w) v.remove(v.length() - 1); return v + "..."; }
+struct BookmarksScreen : Screen {
+  static constexpr int ROW = 44, PITCH = 48, BIN_W = 44;
+  int scroll = 0;
+  const char *name() override { return "Bookmarks"; }
+  void enter() override { scroll = constrain(scroll, 0, maxScroll()); }
+  int maxScroll() { return max(0, nmarks * PITCH - 4 + MARGIN - (H - CONTENT_Y)); }
+  void render() override {
+    frame.fillScreen(C.BG);
+    if (!nmarks) {
+      text(W / 2, H / 2 - 4, "No bookmarks yet", C.TEXT, F16B, textdatum_t::middle_center);
+      text(W / 2, H / 2 + 18, "Hold a page to add one", C.DIM, F12, textdatum_t::middle_center);
+    }
+    frame.setClipRect(0, CONTENT_Y, W, H - CONTENT_Y);
+    for (int i = 0; i < nmarks; i++) {
+      int y = CONTENT_Y + i * PITCH - scroll; if (y + ROW < CONTENT_Y || y > H) continue;
+      card(MARGIN, y, ROW_W, ROW, C.CARD, 10); char pc[8]; snprintf(pc, sizeof pc, "%d%%", marks[i].pct);
+      int rx = W - MARGIN - BIN_W; frame.setFont(F12); int pw = frame.textWidth(pc);
+      text(rx, y + 14, pc, C.DIM, F12, textdatum_t::middle_right);
+      text(MARGIN + 12, y + 14, fitText(chapterLabel(marks[i].ch), F12M, rx - pw - 8 - MARGIN - 12).c_str(), marks[i].ch == book.ch && markHere() == i ? C.ACCENT : C.TEXT, F12M, textdatum_t::middle_left);
+      text(MARGIN + 12, y + 30, fitText(markText(marks[i]), F12, rx - MARGIN - 12).c_str(), C.DIM, F12, textdatum_t::middle_left);
+      icon(W - MARGIN - BIN_W / 2, y + ROW / 2, IC_TRASH_2, IC16, C.DIM);
+    }
+    frame.clearClipRect();
+    frame.fillRect(0, 0, W, CONTENT_Y, C.BG); drawStatusBar(); drawTitle("Bookmarks");
+  }
+  void onMove(int x, int y, int dx, int dy) override { scroll = constrain(scroll - dy, 0, maxScroll()); dirty = true; }
+  void onTap(int x, int y) override {
+    if (y < CONTENT_Y) return; int i = (y - CONTENT_Y + scroll) / PITCH; if (i < 0 || i >= nmarks) return;
+    if (x >= W - MARGIN - BIN_W) { markRemove(i); scroll = constrain(scroll, 0, maxScroll()); dirty = true; return; }
+    bookGoTo(marks[i].ch, markAt(marks[i])); popScreens(2);   // closes onto the page
+  }
+} bookmarksScreen;
+
+// ---- go to a percentage: the number, the chapter it falls in, steps of 1 and 10, Go ----
+struct GoToScreen : Screen {
+  int pct = 0, pressed = -1;
+  const char *name() override { return "Go to"; }
+  void enter() override { pct = bookPercent(); pressed = -1; }
+  static int stepW() { return portrait() ? 48 : 64; } static int stepX(int i) { return (W - 4 * stepW() - 24) / 2 + i * (stepW() + 8); }
+  static int numY() { return portrait() ? 136 : 104; } static int stepY() { return portrait() ? 192 : 140; } static int goY() { return H - 48; }
+  void render() override {
+    static const char *const L[] = {"-10", "-1", "+1", "+10"};
+    frame.fillScreen(C.BG); drawStatusBar(); drawTitle("Go to");
+    char b[8]; snprintf(b, sizeof b, "%d%%", pct);
+    text(W / 2, numY(), b, C.TEXT, F40B, textdatum_t::baseline_center);
+    text(W / 2, numY() + 16, fitText(chapterLabel(chapterAtPercent(pct)), F12, W - 2 * MARGIN).c_str(), C.DIM, F12, textdatum_t::middle_center);
+    for (int i = 0; i < 4; i++) { card(stepX(i), stepY(), stepW(), 36, pressed == i ? C.CARD2 : C.CARD, 10); text(stepX(i) + stepW() / 2, stepY() + 18, L[i], C.TEXT, F16, textdatum_t::middle_center); }
+    card(MARGIN, goY(), ROW_W, 36, pressed == 4 ? C.CARD2 : C.ACCENT, 10); text(W / 2, goY() + 18, "Go", C.WHITE, F16B, textdatum_t::middle_center);
+  }
+  int at(int x, int y) { for (int i = 0; i < 4; i++) if (hit(x, y, stepX(i) - 4, stepY() - 4, stepW() + 8, 44)) return i; return hit(x, y, MARGIN, goY() - 4, ROW_W, 44) ? 4 : -1; }
+  void onDown(int x, int y) override { pressed = at(x, y); if (pressed >= 0) dirty = true; }
+  void onUp(int x, int y) override { if (pressed >= 0) { pressed = -1; dirty = true; } }
+  void onTap(int x, int y) override {
+    static const int D[] = {-10, -1, 1, 10}; int b = at(x, y); pressed = -1; dirty = true;
+    if (b >= 0 && b < 4) pct = constrain(pct + D[b], 0, 100);
+    else if (b == 4) { bookGoPercent(pct); popScreens(2); }   // closes onto the page
+  }
+} goToScreen;
+
 // ---- reader menu: title, author · chapter, text size and line spacing, continue / chapters ----
 struct ReaderMenuScreen : Screen {
   static constexpr int COV_Y = 56, HEAD_X = MARGIN + COV_W + 12, SEG_X = 60, SEG1_Y = 120, SEG2_Y = 152;
   // landscape: Continue (172) and Chapters (116) side by side at the bottom; portrait: stacked, full width
   static int SEG_W() { return W - MARGIN - SEG_X; }
   static int BTN_Y() { return portrait() ? H - 92 : H - 40; }
-  static int BTN1_W() { return portrait() ? W - 2 * MARGIN : 172; }
-  static int BTN2_X() { return portrait() ? MARGIN : 192; }
+  static int BTN1_W() { return portrait() ? W - 2 * MARGIN : 148; }
+  static int BTN2_X() { return portrait() ? MARGIN : 168; }
   static int BTN2_Y() { return portrait() ? H - 48 : H - 40; }
-  static int BTN2_W() { return portrait() ? W - 2 * MARGIN : 116; }
-  int pressed = -1; // 0..2 text size, 6..8 line spacing, 4 continue, 5 chapters
+  static int BTN2_W() { return portrait() ? W - 2 * MARGIN : 92; }
+  static constexpr int BM_X = 268, BM_W = 40;   // landscape: the bookmarks button at the end of the row
+  int pressed = -1; // 0..2 text size, 6..8 line spacing, 4 continue, 5 chapters, 9 go to (the book block), 10 bookmarks
   const char *name() override { return "Reading"; }
   // portrait: cover 48x72 with title, author and a progress bar beside it; both controls in one card (12,140) 216x72;
   // a Chapters row (12,220) showing the current chapter; Continue (12,268) as the primary action
@@ -461,18 +597,18 @@ struct ReaderMenuScreen : Screen {
     if (two) text(tx, COV_Y + 27, l2.c_str(), C.TEXT, F16B, textdatum_t::middle_left);
     String au = book.author; frame.setFont(F12); while (au.length() > 1 && frame.textWidth(au) > tw) au.remove(au.length() - 1);
     text(tx, COV_Y + (two ? 46 : 30), au.c_str(), C.DIM, F12, textdatum_t::middle_left);
-    int pct = bookPercent(); frame.fillSmoothRoundRect(tx, COV_Y + 63, 118, 4, 2, C.LINE);
-    if (pct > 0) frame.fillSmoothRoundRect(tx, COV_Y + 63, max(4, 118 * pct / 100), 4, 2, C.ACCENT);
-    textf(W - MARGIN, COV_Y + 65, C.DIM, F12M, textdatum_t::middle_right, "%d%%", pct);
+    int pct = bookPercent(); frame.fillSmoothRoundRect(tx, COV_Y + 63, 104, 4, 2, C.LINE);   // the progress line: a tap on the book block opens Go to
+    if (pct > 0) frame.fillSmoothRoundRect(tx, COV_Y + 63, max(4, 104 * pct / 100), 4, 2, C.ACCENT);
+    textf(W - MARGIN - 14, COV_Y + 65, C.DIM, F12M, textdatum_t::middle_right, "%d%%", pct); icon(W - MARGIN - 5, COV_Y + 65, IC_CHEVRON_RIGHT, IC12, C.DIM);
     card(MARGIN, 140, W - 2 * MARGIN, 72, C.CARD, 12);
     text(MARGIN + 10, P_SEG1_Y + 12, "Text", C.DIM, F12M, textdatum_t::middle_left); segmented(P_SEG_X, P_SEG1_Y, P_SEG_W, SIZE_LAB, book.fontIdx, pressed >= 0 && pressed < 3 ? pressed : -1, true);
     text(MARGIN + 10, P_SEG2_Y + 12, "Lines", C.DIM, F12M, textdatum_t::middle_left); segmented(P_SEG_X, P_SEG2_Y, P_SEG_W, LINES_LAB, book.lineSp, pressed >= 6 ? pressed - 6 : -1, true);
-    card(MARGIN, P_CH_Y, W - 2 * MARGIN, 36, pressed == 5 ? C.CARD2 : C.CARD, 10);
-    text(MARGIN + 12, P_CH_Y + 18, "Chapters", C.TEXT, F16, textdatum_t::middle_left); chevron(CHEV_X, P_CH_Y + 18, C.DIM);
-    const char *ct; int cl; int num = bookChapterNum(book.ch, ct, cl);
-    char cur[64]; if (num) snprintf(cur, sizeof cur, "Chapter %d", num); else snprintf(cur, sizeof cur, "%.*s", min(cl, 60), ct);
-    frame.setFont(F12); int n = strlen(cur); while (n > 1 && frame.textWidth(cur) > 92) cur[--n] = 0;
-    text(CHEV_X - 12, P_CH_Y + 18, cur, C.DIM, F12, textdatum_t::middle_right);
+    int hw = (W - 2 * MARGIN - 8) / 2, bx = MARGIN + hw + 8;   // Chapters and Bookmarks share the row
+    card(MARGIN, P_CH_Y, hw, 36, pressed == 5 ? C.CARD2 : C.CARD, 10);
+    text(MARGIN + 12, P_CH_Y + 18, "Chapters", C.TEXT, F16, textdatum_t::middle_left); icon(MARGIN + hw - 10, P_CH_Y + 18, IC_CHEVRON_RIGHT, IC12, C.DIM);
+    card(bx, P_CH_Y, hw, 36, pressed == 10 ? C.CARD2 : C.CARD, 10);
+    icon(bx + 16, P_CH_Y + 18, IC_BOOKMARK, IC16, nmarks ? C.ACCENT : C.TEXT); text(bx + 30, P_CH_Y + 18, "Marks", C.TEXT, F16, textdatum_t::middle_left);
+    if (nmarks) textf(bx + hw - 10, P_CH_Y + 18, C.DIM, F12, textdatum_t::middle_right, "%d", nmarks); else icon(bx + hw - 10, P_CH_Y + 18, IC_CHEVRON_RIGHT, IC12, C.DIM);
     card(MARGIN, P_GO_Y, W - 2 * MARGIN, 36, pressed == 4 ? C.CARD2 : C.ACCENT, 10);
     text(W / 2, P_GO_Y + 18, "Continue reading", C.WHITE, F16B, textdatum_t::middle_center);
   }
@@ -480,7 +616,8 @@ struct ReaderMenuScreen : Screen {
     frame.fillScreen(C.BG); drawStatusBar(); drawTitle("Reading");
     if (portrait()) { renderPortrait(); return; }
     drawCover(MARGIN, COV_Y, book.cover, book.title, C.BG);
-    const int tw = W - MARGIN - HEAD_X;
+    const int tw = W - MARGIN - HEAD_X - 52;   // the right end holds the percent and a chevron: a tap on the book block opens Go to
+    textf(W - MARGIN - 14, COV_Y + 24, C.DIM, F12M, textdatum_t::middle_right, "%d%%", bookPercent()); icon(W - MARGIN - 5, COV_Y + 24, IC_CHEVRON_RIGHT, IC12, C.DIM);
     String l1, l2; bool two = wrap2(book.title, F16B, tw, l1, l2) == 2;   // one line: title and author centred on the cover; two: stacked from its top
     text(HEAD_X, COV_Y + (two ? 10 : 16), l1.c_str(), C.TEXT, F16B, textdatum_t::middle_left);
     if (two) text(HEAD_X, COV_Y + 28, l2.c_str(), C.TEXT, F16B, textdatum_t::middle_left);
@@ -493,17 +630,20 @@ struct ReaderMenuScreen : Screen {
     card(MARGIN, BTN_Y(), BTN1_W(), 36, pressed == 4 ? C.CARD2 : C.ACCENT, 10);
     text(MARGIN + BTN1_W() / 2, BTN_Y() + 18, "Continue reading", C.WHITE, F16B, textdatum_t::middle_center);
     card(BTN2_X(), BTN2_Y(), BTN2_W(), 36, pressed == 5 ? C.CARD2 : C.CARD, 10);
-    text(BTN2_X() + 12, BTN2_Y() + 18, "Chapters", C.TEXT, F16, textdatum_t::middle_left); chevron(BTN2_X() + BTN2_W() - 16, BTN2_Y() + 18, C.DIM);
+    text(BTN2_X() + BTN2_W() / 2, BTN2_Y() + 18, "Chapters", C.TEXT, F16, textdatum_t::middle_center);
+    card(BM_X, BTN2_Y(), BM_W, 36, pressed == 10 ? C.CARD2 : C.CARD, 10); icon(BM_X + BM_W / 2, BTN2_Y() + 18, IC_BOOKMARK, IC16, nmarks ? C.ACCENT : C.TEXT);
   }
   int at(int x, int y) {
     if (portrait()) {
       int sg = segmentAt(x, y, P_SEG_X, P_SEG1_Y, P_SEG_W); if (sg >= 0) return sg;
       sg = segmentAt(x, y, P_SEG_X, P_SEG2_Y, P_SEG_W); if (sg >= 0) return 6 + sg;
-      if (hit(x, y, MARGIN, P_CH_Y - 4, W - 2 * MARGIN, 44)) return 5; if (hit(x, y, MARGIN, P_GO_Y - 4, W - 2 * MARGIN, 48)) return 4; return -1;
+      if (hit(x, y, MARGIN, P_CH_Y - 4, W - 2 * MARGIN, 44)) return x < W / 2 ? 5 : 10; if (hit(x, y, MARGIN, P_GO_Y - 4, W - 2 * MARGIN, 48)) return 4;
+      return hit(x, y, 0, COV_Y - 4, W, 80) ? 9 : -1;
     }
     int sg = segmentAt(x, y, SEG_X, SEG1_Y, SEG_W()); if (sg >= 0) return sg;
     sg = segmentAt(x, y, SEG_X, SEG2_Y, SEG_W()); if (sg >= 0) return 6 + sg;
-    if (hit(x, y, MARGIN, BTN_Y() - 4, BTN1_W(), 44)) return 4; if (hit(x, y, BTN2_X(), BTN2_Y() - 4, BTN2_W(), 44)) return 5; return -1;
+    if (hit(x, y, MARGIN, BTN_Y() - 4, BTN1_W(), 44)) return 4; if (hit(x, y, BTN2_X(), BTN2_Y() - 4, BTN2_W(), 44)) return 5; if (hit(x, y, BM_X - 4, BTN2_Y() - 4, BM_W + 8, 44)) return 10;
+    return hit(x, y, 0, COV_Y - 4, W, 56) ? 9 : -1;
   }
   void onDown(int x, int y) override { pressed = at(x, y); if (pressed >= 0) dirty = true; }
   void onUp(int x, int y) override { if (pressed >= 0) { pressed = -1; dirty = true; } }
@@ -513,15 +653,17 @@ struct ReaderMenuScreen : Screen {
     else if (b >= 6 && b < 9) { bookSetLineSp(b - 6); dirty = true; }
     else if (b == 4) popScreen();
     else if (b == 5) pushScreen(&chapterScreen);
+    else if (b == 9) pushScreen(&goToScreen);
+    else if (b == 10) pushScreen(&bookmarksScreen);
     else dirty = true;
   }
 } readerMenuScreen;
 
 // ---- reader ----
 struct BookScreen : Screen {
-  int downX = 0, downY = 0; uint32_t lastClock = 0, noteUntil = 0; String note;
+  int downX = 0, downY = 0; uint32_t lastClock = 0, noteUntil = 0, downAt = 0; String note; bool isDown = false, held = false, moved = false;
   const char *name() override { return "Book"; }
-  void enter() override { bookSyncPull(); }     // has another device read further?
+  void enter() override { isDown = held = false; bookSyncPull(); }     // has another device read further?
   void leave() override { bookSyncPush(); }
   bool titleBack() override { return false; }   // reader has its own 20 px header
   bool backHit(int x, int y) override { return y < 36 && x < 100; }   // generous zone around the 20 px header's chevron
@@ -532,7 +674,9 @@ struct BookScreen : Screen {
     // header: chevron, "n · chapter" dim, clock + battery
     const char *ct; int cl; int num = bookChapterNum(book.ch, ct, cl);
     char t[80]; if (num) snprintf(t, sizeof t, "%d \xC2\xB7 %.*s", num, min(cl, 60), ct); else snprintf(t, sizeof t, "%.*s", min(cl, 60), ct);
-    frame.setFont(F12); int n = strlen(t); while (n > 1 && frame.textWidth(t) > W - 130) t[--n] = 0;
+    frame.setFont(F12); int n = strlen(t); while (n > 1 && frame.textWidth(t) > W - 146) t[--n] = 0;
+    if (markHere() >= 0) { int cw = frame.textWidth(clockValid() ? clockHHMM().c_str() : ""), rx = W - 36 - cw - 16;   // a bookmarked page: a ribbon hangs from the top edge, left of the clock
+      frame.fillRect(rx, 0, 8, 17, C.ACCENT); frame.fillTriangle(rx, 17, rx + 7, 17, rx + 4, 12, C.BG); frame.fillTriangle(rx, 17, rx + 8, 17, rx + 4, 12, C.BG); }
     chevronLeft(12, 10, C.DIM);
     text(24, 10, t, C.DIM, F12, textdatum_t::middle_left);
     text(W - 36, 10, clockValid() ? clockHHMM().c_str() : "", C.DIM, F12, textdatum_t::middle_right); batteryIcon(W - 21, 10);
@@ -561,9 +705,19 @@ struct BookScreen : Screen {
         if (*p == ' ') { x += spaceW + extra + (g < rem ? 1 : 0); g++; p++; continue; }
         if (isToggle(*p)) { st ^= *p == 3 ? 1 : 2; p++; continue; }
         const char *q = p; while (q < L.e && *q != ' ' && !isToggle(*q)) q++;
-        char word[256]; int n = stripShy(p, q, word, 254); bool hy = q == L.e && L.hyph;
-        if (hy) { word[n++] = '-'; word[n] = 0; }
-        text(x, y, word, C.TEXT, bookFont(book.fontIdx, st)); x += runWidth(p, q, st) + (hy ? hyphW : 0); p = q;
+        // The library draws a string without kerning, so a word goes out in pieces, split wherever a pair is kerned,
+        // each piece placed where runWidth() measured it.
+        char seg[256]; int n = 0, sx = x, sw = 0, prev = 0; bool hy = q == L.e && L.hyph; const lgfx::IFont *f = bookFont(book.fontIdx, st);
+        for (const char *c = p; c < q;) {
+          const char *c0 = c; int cp = utf8Next(c, q); if (cp == 0xAD) continue;
+          int k = prev ? kernOf(prev, cp, st) : 0;
+          if (k && n) { seg[n] = 0; text(sx, y, seg, C.TEXT, f); sx += sw + k; sw = 0; n = 0; }
+          if (n + (c - c0) < 250) { memcpy(seg + n, c0, c - c0); n += c - c0; }
+          sw += glyphAdv(cp, st); prev = cp;
+        }
+        if (hy) seg[n++] = '-';
+        if (n) { seg[n] = 0; text(sx, y, seg, C.TEXT, f); }
+        x = sx + sw + (hy ? hyphW : 0); p = q;
       }
       y += book.lineH;
     }
@@ -574,12 +728,17 @@ struct BookScreen : Screen {
   }
   void next() { if (book.page + 1 < book.npages) book.page++; else if (book.ch + 1 < book.nch) bookOpen(book.ch + 1); else return; bookTouched(); bookSave(); dirty = true; }
   void prev() { if (book.page > 0) book.page--; else if (book.ch > 0) { bookOpen(book.ch - 1); book.page = book.npages - 1; } else return; bookTouched(); bookSave(); dirty = true; }
-  void onDown(int x, int y) override { downX = x; downY = y; }
-  void onUp(int x, int y) override { int dx = x - downX; if (abs(dx) > 50 && abs(y - downY) < 60) { if (dx < 0) next(); else prev(); } }
+  void onDown(int x, int y) override { downX = x; downY = y; isDown = true; held = moved = false; downAt = millis(); }
+  void onMove(int x, int y, int dx, int dy) override { moved = true; }
+  void onUp(int x, int y) override { isDown = false; if (held) return; int dx = x - downX; if (abs(dx) > 50 && abs(y - downY) < 60) { if (dx < 0) next(); else prev(); } }
   void onTap(int x, int y) override {
+    if (held) return;
     if (x < W / 3) prev(); else if (x > 2 * W / 3) next(); else pushScreen(&readerMenuScreen);
   }
   void tick() override {
+    if (isDown && !held && !moved && millis() - downAt > 550) {   // hold anywhere: bookmark this page, or take the mark away
+      held = true; int r = markToggle(); note = r > 0 ? "Bookmarked" : r < 0 ? "Bookmark removed" : "No room for more bookmarks"; noteUntil = millis() + 2500; dirty = true;
+    }
     if (sy.pullDone) { String from = bookSyncApply(); if (from.length()) { note = "Synced from " + from; noteUntil = millis() + 4000; dirty = true; } }
     if (noteUntil && (int32_t)(millis() - noteUntil) >= 0) { noteUntil = 0; dirty = true; }
     if (millis() - lastClock > 30000) { lastClock = millis(); dirty = true; }
